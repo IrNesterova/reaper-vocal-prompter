@@ -88,6 +88,9 @@ Settings are shared by all projects. To leave prompter-only mode, right-click th
 - Lyrics, song name, timings and offset are stored in the project (`.rpp`) via project ExtState. Save the project (Ctrl+S) after loading lyrics.
 - Language and view settings are stored globally in REAPER's ExtState.
 - Online search sends only the artist/title you typed to `lrclib.net` and `itunes.apple.com`. Temporary files are kept in `<REAPER resource path>/Data/VocalPrompter`.
+## Showcase
+
+https://github.com/user-attachments/assets/55bb3612-4237-4075-ae7c-fdac9814fe64
 
 ## Troubleshooting
 
