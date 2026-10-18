@@ -331,13 +331,25 @@ function M.new_imgui(api_path)
   impl.SliderInt = valued("SliderInt")
   impl.SliderDouble = valued("SliderDouble")
   impl.DragDouble = valued("DragDouble")
+  -- Как в ReaImGui: с EnterReturnsTrue новое значение отдаётся только по Enter,
+  -- иначе — при каждом изменении. G.enter[id] = «в этом кадре нажали Enter в поле».
+  G.enter = {}
   impl.InputText = function(c, label, v, flags)
     check_ctx("InputText", c)
     if type(v) ~= "string" then err("InputText: value must be a string") end
     local id = id_of(label)
-    if G.inputs[id] ~= nil then return true, G.inputs[id] end
-    return clicked(label .. ":enter"), v
+    G.last_id = id
+    G.cx = 14
+    local enter_mode = flags ~= nil and G.constants and flags == G.constants.InputTextFlags_EnterReturnsTrue
+    local typed = G.inputs[id]
+    if enter_mode then
+      if G.enter[id] then return true, typed or v end
+      return false, v
+    end
+    if typed ~= nil and typed ~= v then return true, typed end
+    return false, v
   end
+  impl.IsItemDeactivated = function(c) return G.enter[G.last_id] == true end
   impl.InputTextWithHint = function(c, label, hint, v)
     check_ctx("InputTextWithHint", c)
     if type(v) ~= "string" then err("InputTextWithHint: value must be a string") end

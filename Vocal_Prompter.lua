@@ -1,5 +1,5 @@
 -- @description Vocal Prompter — lyrics teleprompter for recording vocals
--- @version 1.1.0
+-- @version 1.1.1
 -- @author Irina Nesterova
 -- @license MIT
 -- @link https://github.com/IrNesterova/reaper-vocal-prompter
@@ -1346,10 +1346,18 @@ local function draw_text()
   if ImGui.IsItemHovered(ctx) then ImGui.SetTooltip(ctx, T("search_hint")) end
 
   ImGui.SetNextItemWidth(ctx, -100)
+  -- Без InputTextFlags_EnterReturnsTrue: с ним ReaImGui отдаёт введённый текст
+  -- только по Enter, и стёртое название возвращалось обратно. Enter ловим отдельно.
+  local function search_field(label, value)
+    local _, v = ImGui.InputText(ctx, label, value)
+    local enter = ImGui.IsItemDeactivated(ctx) and
+      (ImGui.IsKeyPressed(ctx, ImGui.Key_Enter, false) or ImGui.IsKeyPressed(ctx, ImGui.Key_KeypadEnter, false))
+    return enter, v
+  end
   local enter1, enter2
-  enter1, q_artist = ImGui.InputText(ctx, T("artist") .. "###qa", q_artist, ImGui.InputTextFlags_EnterReturnsTrue)
+  enter1, q_artist = search_field(T("artist") .. "###qa", q_artist)
   ImGui.SetNextItemWidth(ctx, -100)
-  enter2, q_title = ImGui.InputText(ctx, T("title") .. "###qt", q_title, ImGui.InputTextFlags_EnterReturnsTrue)
+  enter2, q_title = search_field(T("title") .. "###qt", q_title)
 
   if busy() then
     ImGui.BeginDisabled(ctx)

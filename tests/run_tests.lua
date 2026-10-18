@@ -574,6 +574,28 @@ test("«Применить» берёт текст из поля и назван
   eq(v2.S().name, "Muse — Uprising"); eq(v2.S().lines[1].text, "Paranoia")
 end)
 
+test("поля поиска: стёртое название не возвращается, «Искать» берёт новый текст", function()
+  local v2, R, G, fs = fresh({ os = "Win64", proj_ext = { name = "Nina Simone — Feeling Good" } })
+  G.tab = "tt"; M.frame(v2, G)
+  local a, t = v2.queries(); eq(a, "Nina Simone"); eq(t, "Feeling Good")
+  G.inputs.qt = ""; M.frame(v2, G)              -- стёрли название, Enter не жали
+  a, t = v2.queries(); eq(t, "", "название должно стереться сразу")
+  G.inputs = {}; M.frame(v2, G)                 -- кликнули мимо: текст не возвращается
+  a, t = v2.queries(); eq(t, "")
+  G.clicks.search = true; M.frame(v2, G); G.clicks = {}
+  eq(v2.SR.view, "songs", "без названия — поиск по исполнителю")
+end)
+
+test("поля поиска: Enter запускает поиск", function()
+  local v2, R, G = fresh({ os = "Win64" })
+  G.tab = "tt"
+  G.inputs.qa = "Muse"; G.inputs.qt = "Uprising"; M.frame(v2, G)
+  G.inputs = {}
+  G.enter.qt = true; G.keys[G.module.Key_Enter] = true; M.frame(v2, G)
+  G.enter = {}; G.keys = {}
+  eq(v2.SR.view, "versions"); eq(v2.SR.versions_title, "Uprising")
+end)
+
 test("клик по песне → поиск версий; клик по версии → загрузка", function()
   local v2, R, G, fs = prepare("songs")
   G.tab = "tt"

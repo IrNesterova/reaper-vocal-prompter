@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- Fixed: the search fields couldn't be cleared — the old title came back and "Search" used it. With `InputTextFlags_EnterReturnsTrue` ReaImGui only returns the edited text on Enter; the fields now update live and Enter is detected separately
+
 ## 1.1.0
 
 - **Settings** tab: Dark / Midnight / Light themes, 8 accent colors and a custom color picker, current line in accent color, prompter options, interface language, reset
