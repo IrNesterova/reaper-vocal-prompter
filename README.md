@@ -1,6 +1,8 @@
 # Vocal Prompter for REAPER
 
-**[Русская версия →](README.ru.md)**
+[![tests](https://github.com/IrNesterova/reaper-vocal-prompter/actions/workflows/tests.yml/badge.svg)](https://github.com/IrNesterova/reaper-vocal-prompter/actions/workflows/tests.yml)
+
+**[Русская версия →](README.ru.md)** · [Changelog](CHANGELOG.md)
 
 A lyrics teleprompter for recording vocals in REAPER. While you record or play back, it shows the current line in big text, with the next lines underneath — so you never have to look away to another window or a phone.
 
@@ -96,12 +98,13 @@ Settings are shared by all projects. To leave prompter-only mode, right-click th
 | Search: "no response" / network error | lrclib.net may be unreachable from your network — check it in a browser; a VPN may help. You can always paste lyrics manually |
 | Lines appear too early/late | Adjust **Song start in project** or **Show early by** on the Sync tab |
 | Transparency doesn't show | Undock the window (Sync tab → **Undock**) |
+| Stuck in prompter-only mode | Right-click the window → untick **Prompter only** |
 
 ## Tests
 
 The tests run the script outside REAPER, against mocks of the REAPER API and a **strict ReaImGui mock** that only knows the functions available to scripts requesting API 0.9 (the list in `tests/reaimgui_api_0.9.txt` is generated from the ReaImGui sources by `tests/tools/gen_api_list.py`). Any call to a missing function fails exactly like real ReaImGui does, and every frame is checked for matching Begin/End and Push/Pop calls.
 
-Covered: lyrics/LRC parsing, JSON, localization, timings and tapping, per-project storage and project switching, markers, background search (Windows `.bat`/`.vbs`, macOS `.sh`), artist song lists, and rendering every tab in every state in both languages.
+Covered: lyrics/LRC parsing, JSON, localization, timings and tapping, per-project storage and project switching, markers, background search (Windows `.bat`/`.vbs`, macOS `.sh`), artist song lists, themes and accent colors, window size restore after collapsing, and rendering every tab in every state, theme and language. A simple layout model also checks that no button ends up outside the window, down to 260 px wide.
 
 ```sh
 lua5.4 tests/run_tests.lua
