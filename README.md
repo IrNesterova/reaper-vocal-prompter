@@ -86,6 +86,18 @@ The **RU · EN** button to the right of the tabs switches the interface language
 | Lines appear too early/late | Adjust **Song start in project** or **Show early by** on the Sync tab |
 | Transparency doesn't show | Undock the window (Sync tab → **Undock**) |
 
+## Tests
+
+The tests run the script outside REAPER, against mocks of the REAPER API and a **strict ReaImGui mock** that only knows the functions available to scripts requesting API 0.9 (the list in `tests/reaimgui_api_0.9.txt` is generated from the ReaImGui sources by `tests/tools/gen_api_list.py`). Any call to a missing function fails exactly like real ReaImGui does, and every frame is checked for matching Begin/End and Push/Pop calls.
+
+Covered: lyrics/LRC parsing, JSON, localization, timings and tapping, per-project storage and project switching, markers, background search (Windows `.bat`/`.vbs`, macOS `.sh`), artist song lists, and rendering every tab in every state in both languages.
+
+```sh
+lua5.4 tests/run_tests.lua
+```
+
+They also run automatically on GitHub for every push.
+
 ## Credits
 
 - Lyrics: [LRCLIB](https://lrclib.net) — free, open lyrics database

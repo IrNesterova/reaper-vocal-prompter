@@ -495,7 +495,8 @@ end
 
 local function set_lines(lines, name)
   S.lines = lines
-  if name then S.name = name end
+  -- только строка: set_lines(parse_lyrics(x)) передаёт вторым значением таблицу meta
+  if type(name) == "string" then S.name = name end
   tap_idx = 1
   for i, l in ipairs(lines) do if not l.t then tap_idx = i break end end
   mark_dirty()
@@ -1251,7 +1252,11 @@ local function loop()
   ImGui.PushFont(ctx, F_UI)
 
   local wtitle = S.name ~= "" and ("Vocal Prompter — " .. S.name) or "Vocal Prompter"
-  local wflags = VIEW.compact and ImGui.WindowFlags_NoScrollbar or 0
+  -- NoCollapse: у плавающих окон ReaImGui после сворачивания в заголовок окно
+  -- не разворачивалось обратно, а сворачивание суфлёру и не нужно
+  -- (для маленького окна есть режим «только суфлёр»)
+  local wflags = ImGui.WindowFlags_NoCollapse
+  if VIEW.compact then wflags = wflags | ImGui.WindowFlags_NoScrollbar end
   local visible, open = ImGui.Begin(ctx, wtitle .. "###VocalPrompter", true, wflags)
   if visible then
     if VIEW.compact then
@@ -1291,6 +1296,23 @@ local function loop()
   elseif dirty and r.ValidatePtr(cur_proj, "ReaProject*") then
     save_state(cur_proj)
   end
+end
+
+-- Точка входа для автотестов (tests/run_tests.lua). В REAPER VP_TEST не задан.
+if VP_TEST then
+  return {
+    T = T, STR = STR, set_lang = set_lang, get_lang = function() return lang end,
+    parse_lyrics = parse_lyrics, to_lrc = to_lrc, song_name = song_name, song_key = song_key,
+    ulower = ulower, json_decode = json_decode, urlencode = urlencode, fmt_time = fmt_time,
+    timed_order = timed_order, find_current = find_current, wrap_lines = wrap_lines,
+    load_state = load_state, save_state = save_state, set_lines = set_lines, do_tap = do_tap,
+    export_markers = export_markers, start_job = start_job, poll_job = poll_job,
+    start_search = start_search, search_track = search_track, poll_search = poll_search,
+    build_song_list = build_song_list, imgui_has = imgui_has, loop = loop,
+    S = function() return S end, SR = SR, VIEW = VIEW, jobs = jobs,
+    tap_idx = function() return tap_idx end, dirty = function() return dirty end,
+    queries = function() return q_artist, q_title end,
+  }
 end
 
 r.defer(loop)
