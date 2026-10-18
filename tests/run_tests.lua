@@ -685,6 +685,14 @@ test("выбор темы, акцента и своего цвета сохра�
   eq(v3.VIEW.theme, "light"); eq(v3.VIEW.accent, 0x123456FF)
 end)
 
+test("квадратики акцента показывают тот же цвет, что применяется", function()
+  local v2, R, G = fresh()
+  G.tab = "tset"; M.frame(v2, G)
+  for i, acc in ipairs(v2.ACCENTS) do
+    eq(G.swatches["acc" .. i], acc.c >> 8, "квадратик " .. v2.T(acc.name))
+  end
+end)
+
 test("тема применяется к цветам интерфейса и суфлёра", function()
   local v2 = fresh()
   v2.VIEW.theme = "light"; v2.update_colors()

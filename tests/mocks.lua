@@ -290,6 +290,14 @@ function M.new_imgui(api_path)
   impl.ColorButton = function(c, id, col, flags, w, h)
     check_ctx("ColorButton", c)
     if type(col) ~= "number" then err("ColorButton: color must be a number") end
+    -- как в ReaImGui: с NoAlpha цвет читается как 0xRRGGBB, иначе 0xRRGGBBAA
+    local no_alpha = flags ~= nil and G.constants and flags == G.constants.ColorEditFlags_NoAlpha
+    local rgb = no_alpha and (col & 0xFFFFFF) or ((col >> 8) & 0xFFFFFF)
+    if no_alpha and col > 0xFFFFFF then
+      err(("ColorButton '%s': with NoAlpha the color must be 0xRRGGBB, got 0x%X"):format(id, col))
+    end
+    G.swatches = G.swatches or {}
+    G.swatches[id_of(id)] = rgb
     w = w or 20
     if G.cx + w > PAD_X + G.avail_w + 0.5 then error("ImGui mock: ColorButton '" .. id .. "' is outside the window", 2) end
     item(w)

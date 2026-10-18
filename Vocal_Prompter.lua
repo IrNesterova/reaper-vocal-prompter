@@ -1025,7 +1025,8 @@ local function draw_settings()
       ImGui.PushStyleColor(ctx, ImGui.Col_Border, COL.text)
       ImGui.PushStyleVar(ctx, ImGui.StyleVar_FrameBorderSize, 2)
     end
-    if ImGui.ColorButton(ctx, T(acc.name) .. "###acc" .. i, acc.c, ImGui.ColorEditFlags_NoAlpha, sw, sw) then
+    -- с ColorEditFlags_NoAlpha ReaImGui ждёт 0xRRGGBB, а не 0xRRGGBBAA
+    if ImGui.ColorButton(ctx, T(acc.name) .. "###acc" .. i, acc.c >> 8, ImGui.ColorEditFlags_NoAlpha, sw, sw) then
       VIEW.accent = acc.c; save_view()
     end
     if selected then ImGui.PopStyleVar(ctx); ImGui.PopStyleColor(ctx) end
