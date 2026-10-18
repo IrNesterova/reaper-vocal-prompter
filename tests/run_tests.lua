@@ -497,7 +497,7 @@ end
 
 local STATES = { "empty", "untimed", "lyrics", "songs", "versions", "searching", "error" }
 for _, lang in ipairs({ "ru", "en" }) do
-  for _, tab in ipairs({ "tp", "ts", "tt" }) do
+  for _, tab in ipairs({ "tp", "ts", "tt", "tset" }) do
     test(("вкладка %s, язык %s: все состояния рисуются, Begin/End и Push/Pop парные"):format(tab, lang), function()
       for _, state in ipairs(STATES) do
         local v2, R, G = prepare(state)
@@ -512,7 +512,7 @@ for _, lang in ipairs({ "ru", "en" }) do
   end
 end
 
-test("компактный режим, запись, попап «Aa», окно в доке и откреплено", function()
+test("компактный режим, запись, попап «Вид», окно в доке и откреплено", function()
   for _, compact in ipairs({ false, true }) do
     for _, docked in ipairs({ false, true }) do
       local v2, R, G = prepare("lyrics")
@@ -638,6 +638,99 @@ test("сворачивание: окно в доке не трогаем; мал
   G.begin_visible = false; M.frame(v2, G)
   G.begin_visible = true; G.win_h = 27; M.frame(v2, G); M.frame(v2, G)
   falsy(forced_size(G), "без запомненного нормального размера не восстанавливаем")
+end)
+
+test("кнопка «Вид» и время помещаются в окно при любом названии и ширине", function()
+  for _, name in ipairs({ "", "Muse — Uprising", "Nina Simone — I Put a Spell on You (Remastered 2013 Deluxe Edition)" }) do
+    for _, w in ipairs({ 200, 300, 420, 900 }) do
+      for _, rec in ipairs({ 0, 5 }) do
+        local v2, R, G = prepare("lyrics")
+        v2.S().name = name; G.avail_w = w; R.play_state = rec; R.play_pos = 3
+        local ok, e = pcall(M.frame, v2, G)
+        if not ok then error(("name=%q width=%d rec=%d: %s"):format(name, w, rec, e), 0) end
+        truthy(G.has_text(v2.T("view")), "нет кнопки «Вид»")
+      end
+    end
+  end
+end)
+
+test("все вкладки помещаются в узкое окно во всех темах", function()
+  for _, th in ipairs(vp.THEMES) do
+    for _, lang in ipairs({ "ru", "en" }) do
+      for _, tab in ipairs({ "tp", "ts", "tt", "tset" }) do
+        for _, w in ipairs({ 260, 340, 480 }) do
+          local v2, R, G = prepare("lyrics")
+          v2.set_lang(lang); v2.VIEW.theme = th.id; G.tab = tab; G.avail_w = w
+          local ok, e = pcall(M.frame, v2, G)
+          if not ok then error(("theme=%s lang=%s tab=%s width=%d: %s"):format(th.id, lang, tab, w, e), 0) end
+        end
+      end
+    end
+  end
+end)
+
+---------------------------------------------------------------------------
+group("Настройки: тема и цвета")
+---------------------------------------------------------------------------
+test("выбор темы, акцента и своего цвета сохраняется", function()
+  local v2, R, G = fresh()
+  G.tab = "tset"
+  G.clicks.th_light = true; M.frame(v2, G); G.clicks = {}
+  eq(v2.VIEW.theme, "light"); eq(R.gext["VocalPrompter/theme"], "light")
+  G.clicks.acc3 = true; M.frame(v2, G); G.clicks = {}
+  eq(v2.VIEW.accent, v2.ACCENTS[3].c)
+  G.inputs.acc_custom = 0x123456; M.frame(v2, G); G.inputs = {}
+  eq(v2.VIEW.accent, 0x123456FF); eq(R.gext["VocalPrompter/accent"], tostring(0x123456FF))
+  local v3 = fresh({ ext = { ["VocalPrompter/theme"] = "light", ["VocalPrompter/accent"] = tostring(0x123456FF) } })
+  eq(v3.VIEW.theme, "light"); eq(v3.VIEW.accent, 0x123456FF)
+end)
+
+test("тема применяется к цветам интерфейса и суфлёра", function()
+  local v2 = fresh()
+  v2.VIEW.theme = "light"; v2.update_colors()
+  truthy(v2.COL.bg > 0xE0000000, "фон светлой темы должен быть светлым")
+  truthy(v2.COL.cur < 0x40404040, "текст светлой темы должен быть тёмным")
+  v2.VIEW.theme = "dark"; v2.update_colors()
+  truthy(v2.COL.bg < 0x30303030)
+end)
+
+test("текущая строка цветом акцента", function()
+  local v2, R, G = fresh()
+  v2.VIEW.accent = 0x60A5FAFF; v2.VIEW.accent_line = true; v2.update_colors()
+  eq(v2.COL.cur, 0x60A5FAFF)
+  v2.VIEW.accent_line = false; v2.update_colors()
+  eq(v2.COL.cur, 0xFFFFFFFF)
+  G.tab = "tset"; G.inputs.acl = true; M.frame(v2, G); G.inputs = {}
+  eq(v2.VIEW.accent_line, true); eq(R.gext["VocalPrompter/accent_line"], "1")
+end)
+
+test("текст на акцентной кнопке читается: тёмный на светлом, светлый на тёмном", function()
+  local v2 = fresh()
+  v2.VIEW.accent = 0xF5C542FF; v2.update_colors(); eq(v2.COL.on_accent, 0x1B1016FF)
+  v2.VIEW.accent = 0x1E3A8AFF; v2.update_colors(); eq(v2.COL.on_accent, 0xFFFFFFFF)
+end)
+
+test("сброс настроек и защита от мусора в сохранённых значениях", function()
+  local v2, R, G = fresh()
+  v2.VIEW.theme = "light"; v2.VIEW.accent = 0x123456FF; v2.VIEW.fsize = 4
+  G.tab = "tset"; G.clicks.reset_view = true; M.frame(v2, G); G.clicks = {}
+  eq(v2.VIEW.theme, "dark"); eq(v2.VIEW.fsize, 2); eq(v2.VIEW.accent, 0xFF6F9CFF)
+  local v3 = fresh({ ext = { ["VocalPrompter/theme"] = "neon", ["VocalPrompter/accent"] = "abc" } })
+  eq(v3.VIEW.theme, "dark"); eq(v3.VIEW.accent, 0xFF6F9CFF)
+end)
+
+test("язык переключается и во вкладке «Настройки»", function()
+  local v2, R, G = fresh()
+  G.tab = "tset"; G.clicks.lang_en = true; M.frame(v2, G); G.clicks = {}
+  eq(v2.get_lang(), "en")
+end)
+
+test("mix и fit_text", function()
+  eq(vp.mix(0x000000FF, 0xFFFFFFFF, 0.5), 0x808080FF)
+  eq(vp.mix(0x102030FF, 0x102030FF, 0.7), 0x102030FF)
+  local s = vp.fit_text("Nina Simone — I Put a Spell on You", 8 * 12)
+  truthy(utf8.len(s) <= 12 and s:sub(-3) == "…", s)
+  eq(vp.fit_text("short", 1000), "short")
 end)
 
 test("кнопка сворачивания на месте (нет NoCollapse)", function()

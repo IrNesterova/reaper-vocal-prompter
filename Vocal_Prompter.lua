@@ -1,5 +1,5 @@
 -- @description Vocal Prompter — lyrics teleprompter for recording vocals
--- @version 1.0.0
+-- @version 1.1.0
 -- @author Irina Nesterova
 -- @license MIT
 -- @link https://github.com/IrNesterova/reaper-vocal-prompter
@@ -76,11 +76,32 @@ local STR = {
 
     song            = "Песня",
     view            = "Вид",
+    tab_settings    = "Настройки",
+    sec_theme       = "Тема",
+    theme_dark      = "Тёмная",
+    theme_midnight  = "Полночь",
+    theme_light     = "Светлая",
+    sec_accent      = "Цвет акцента",
+    acc_pink        = "Розовый",
+    acc_violet      = "Фиолетовый",
+    acc_blue        = "Синий",
+    acc_teal        = "Бирюзовый",
+    acc_green       = "Зелёный",
+    acc_yellow      = "Жёлтый",
+    acc_orange      = "Оранжевый",
+    acc_red         = "Красный",
+    acc_custom      = "Свой цвет",
+    accent_line     = "Текущая строка цветом акцента",
+    sec_prompter    = "Суфлёр",
+    sec_language    = "Язык интерфейса",
+    reset_view      = "Сбросить настройки",
+    reset_view_q    = "Вернуть настройки вида по умолчанию?",
+    all_settings    = "Цвета и остальное — во вкладке «Настройки».",
     font_size       = "Размер текста",
     opacity         = "Непрозрачность фона",
     opacity_note    = "Прозрачность видна, когда окно откреплено от дока.",
     compact         = "Только суфлёр (без вкладок)",
-    compact_tip     = "Правый клик по окну — настройки вида",
+    compact_tip     = "Настройки вида (или правый клик по окну)",
     sec_text        = "Текст",
     sec_timing      = "Тайминг",
     sec_lines       = "Строки",
@@ -148,11 +169,32 @@ local STR = {
 
     song            = "Song",
     view            = "View",
+    tab_settings    = "Settings",
+    sec_theme       = "Theme",
+    theme_dark      = "Dark",
+    theme_midnight  = "Midnight",
+    theme_light     = "Light",
+    sec_accent      = "Accent color",
+    acc_pink        = "Pink",
+    acc_violet      = "Violet",
+    acc_blue        = "Blue",
+    acc_teal        = "Teal",
+    acc_green       = "Green",
+    acc_yellow      = "Yellow",
+    acc_orange      = "Orange",
+    acc_red         = "Red",
+    acc_custom      = "Custom color",
+    accent_line     = "Current line in accent color",
+    sec_prompter    = "Prompter",
+    sec_language    = "Interface language",
+    reset_view      = "Reset settings",
+    reset_view_q    = "Restore default view settings?",
+    all_settings    = "Colors and more are in the \"Settings\" tab.",
     font_size       = "Text size",
     opacity         = "Background opacity",
     opacity_note    = "Transparency shows when the window is undocked.",
     compact         = "Prompter only (no tabs)",
-    compact_tip     = "Right-click the window for view settings",
+    compact_tip     = "View settings (or right-click the window)",
     sec_text        = "Lyrics",
     sec_timing      = "Timing",
     sec_lines       = "Lines",
@@ -206,57 +248,146 @@ local F_UI   = ImGui.CreateFont('sans-serif', 15); ImGui.Attach(ctx, F_UI)
 local F_HEAD = ImGui.CreateFont('sans-serif', 18); ImGui.Attach(ctx, F_HEAD)
 local F_TAP  = ImGui.CreateFont('sans-serif', 22); ImGui.Attach(ctx, F_TAP)
 
-local ACCENT = 0xFF6F9CFF
 local function with_alpha(c, a) return (c & 0xFFFFFF00) | a end
 
-local COL = {
-  text   = 0xE8E8F0FF,
-  cur    = 0xFFFFFFFF,
-  next   = 0xB4B4C4FF,
-  dim    = 0x70708AFF,
-  faint  = 0x50506AFF,
-  rec    = 0xFF4D5EFF,
-  warn   = 0xFFB86BFF,
-  synced = 0x7BD8A0FF,
-  accent = ACCENT,
+-- Смешать два цвета RRGGBBAA: t = 0 → a, t = 1 → b
+local function mix(a, b, t)
+  local function ch(c, s) return (c >> s) & 0xFF end
+  local out = 0
+  for _, s in ipairs({ 24, 16, 8, 0 }) do
+    out = out | (math.floor(ch(a, s) + (ch(b, s) - ch(a, s)) * t + 0.5) << s)
+  end
+  return out
+end
+
+-- Яркость цвета 0..1 (чтобы выбрать тёмный или светлый текст на кнопке)
+local function luminance(c)
+  return (0.299 * ((c >> 24) & 0xFF) + 0.587 * ((c >> 16) & 0xFF) + 0.114 * ((c >> 8) & 0xFF)) / 255
+end
+
+-- Темы: фон, рамки, текст. Акцент выбирается отдельно.
+local THEMES = {
+  { id = "dark", name = "theme_dark", c = {
+      bg = 0x141418FF, popup = 0x1D1D24F8, border = 0x2A2A34FF,
+      frame = 0x23232BFF, frame_hov = 0x2C2C36FF, frame_act = 0x34343FFF,
+      title = 0x141418FF, title_act = 0x1A1A20FF,
+      button = 0x272731FF, button_hov = 0x33333FFF,
+      tab = 0x1A1A20FF, tab_hov = 0x33333FFF, tab_act = 0x2A2A34FF,
+      scroll = 0x2C2C36FF, row_alt = 0xFFFFFF05, progress = 0x26262FFF,
+      text = 0xE8E8F0FF, cur = 0xFFFFFFFF, next = 0xB4B4C4FF, dim = 0x70708AFF, faint = 0x50506AFF } },
+  { id = "midnight", name = "theme_midnight", c = {
+      bg = 0x0E1424FF, popup = 0x151D31F8, border = 0x223050FF,
+      frame = 0x18223AFF, frame_hov = 0x202C48FF, frame_act = 0x283656FF,
+      title = 0x0E1424FF, title_act = 0x131B30FF,
+      button = 0x1B2640FF, button_hov = 0x25324FFF,
+      tab = 0x131B30FF, tab_hov = 0x25324FFF, tab_act = 0x1F2B47FF,
+      scroll = 0x223050FF, row_alt = 0xFFFFFF05, progress = 0x1C2740FF,
+      text = 0xE2E8F6FF, cur = 0xFFFFFFFF, next = 0xA9B6D3FF, dim = 0x6A7898FF, faint = 0x46536FFF } },
+  { id = "light", name = "theme_light", c = {
+      bg = 0xF5F5F8FF, popup = 0xFFFFFFFA, border = 0xD8D8E0FF,
+      frame = 0xE7E7EDFF, frame_hov = 0xDDDDE5FF, frame_act = 0xD3D3DDFF,
+      title = 0xE9E9EFFF, title_act = 0xDFDFE7FF,
+      button = 0xE3E3EAFF, button_hov = 0xD7D7E0FF,
+      tab = 0xE5E5EBFF, tab_hov = 0xD7D7E0FF, tab_act = 0xFFFFFFFF,
+      scroll = 0xC9C9D3FF, row_alt = 0x00000008, progress = 0xDCDCE4FF,
+      text = 0x23232BFF, cur = 0x101016FF, next = 0x4E4E5CFF, dim = 0x8A8A99FF, faint = 0xB2B2C0FF } },
+}
+local THEME_BY_ID = {}
+for _, th in ipairs(THEMES) do THEME_BY_ID[th.id] = th end
+
+local ACCENTS = {
+  { name = "acc_pink",   c = 0xFF6F9CFF },
+  { name = "acc_violet", c = 0xA78BFAFF },
+  { name = "acc_blue",   c = 0x60A5FAFF },
+  { name = "acc_teal",   c = 0x2DD4BFFF },
+  { name = "acc_green",  c = 0x5FD08AFF },
+  { name = "acc_yellow", c = 0xF5C542FF },
+  { name = "acc_orange", c = 0xFB923CFF },
+  { name = "acc_red",    c = 0xF2545BFF },
 }
 
--- Тема: тёмная, скруглённая, с розовым акцентом
-local THEME_COLORS = {
-  { "WindowBg",         0x141418FF },
-  { "ChildBg",          0x00000000 },
-  { "PopupBg",          0x1D1D24F8 },
-  { "Border",           0x2A2A34FF },
-  { "FrameBg",          0x23232BFF },
-  { "FrameBgHovered",   0x2C2C36FF },
-  { "FrameBgActive",    0x34343FFF },
-  { "TitleBg",          0x141418FF },
-  { "TitleBgActive",    0x1A1A20FF },
-  { "TitleBgCollapsed", 0x141418FF },
-  { "Button",           0x272731FF },
-  { "ButtonHovered",    0x33333FFF },
-  { "ButtonActive",     with_alpha(ACCENT, 0x99) },
-  { "Header",           with_alpha(ACCENT, 0x30) },
-  { "HeaderHovered",    with_alpha(ACCENT, 0x48) },
-  { "HeaderActive",     with_alpha(ACCENT, 0x70) },
-  { "Separator",        0x2A2A34FF },
-  { "Tab",              0x1A1A20FF },
-  { "TabHovered",       0x33333FFF },
-  { "TabActive",        0x2A2A34FF },
-  { "TabSelected",      0x2A2A34FF },
-  { "Text",             COL.text },
-  { "TextDisabled",     COL.dim },
-  { "SliderGrab",       ACCENT },
-  { "SliderGrabActive", 0xFF89AEFF },
-  { "CheckMark",        ACCENT },
-  { "PlotHistogram",    ACCENT },
-  { "ScrollbarBg",      0x00000000 },
-  { "ScrollbarGrab",    0x2C2C36FF },
-  { "TableRowBg",       0x00000000 },
-  { "TableRowBgAlt",    0xFFFFFF05 },
-  { "ResizeGrip",       0x00000000 },
-  { "TextSelectedBg",   with_alpha(ACCENT, 0x55) },
-}
+-- Настройки вида (общие для всех проектов)
+local VIEW_DEFAULTS = { fsize = 2, alpha = 1, compact = false, theme = "dark", accent = 0xFF6F9CFF, accent_line = false }
+local function load_view()
+  local function num(k) return tonumber(r.GetExtState(SEC, k)) end
+  local th = r.GetExtState(SEC, "theme")
+  return {
+    fsize       = math.max(1, math.min(#BIG_SIZES, num("fsize") or VIEW_DEFAULTS.fsize)),
+    alpha       = math.max(0.15, math.min(1, num("alpha") or VIEW_DEFAULTS.alpha)),
+    compact     = r.GetExtState(SEC, "compact") == "1",
+    theme       = THEME_BY_ID[th] and th or VIEW_DEFAULTS.theme,
+    accent      = ((num("accent") or VIEW_DEFAULTS.accent) & 0xFFFFFF00) | 0xFF,
+    accent_line = r.GetExtState(SEC, "accent_line") == "1",
+  }
+end
+local VIEW = load_view()
+local function save_view()
+  r.SetExtState(SEC, "fsize", tostring(VIEW.fsize), true)
+  r.SetExtState(SEC, "alpha", string.format("%.2f", VIEW.alpha), true)
+  r.SetExtState(SEC, "compact", VIEW.compact and "1" or "0", true)
+  r.SetExtState(SEC, "theme", VIEW.theme, true)
+  r.SetExtState(SEC, "accent", tostring(VIEW.accent), true)
+  r.SetExtState(SEC, "accent_line", VIEW.accent_line and "1" or "0", true)
+end
+local function reset_view()
+  for k, v in pairs(VIEW_DEFAULTS) do VIEW[k] = v end
+  save_view()
+end
+
+-- Текущие цвета: пересчитываются каждый кадр из темы и акцента
+local COL = { rec = 0xFF4D5EFF, warn = 0xFFB86BFF, synced = 0x5FD08AFF }
+local function update_colors()
+  local p = THEME_BY_ID[VIEW.theme].c
+  local light = VIEW.theme == "light"
+  for k, v in pairs(p) do COL[k] = v end
+  COL.accent       = VIEW.accent
+  COL.accent_hov   = mix(VIEW.accent, light and 0x000000FF or 0xFFFFFFFF, 0.15)
+  COL.accent_act   = mix(VIEW.accent, 0x000000FF, 0.15)
+  COL.on_accent    = luminance(VIEW.accent) > 0.6 and 0x1B1016FF or 0xFFFFFFFF
+  COL.warn         = light and 0xC2600CFF or 0xFFB86BFF
+  COL.synced       = light and 0x16944AFF or 0x5FD08AFF
+  if VIEW.accent_line then COL.cur = VIEW.accent end
+end
+update_colors()
+
+local function theme_colors()
+  local a = COL.accent
+  return {
+    { "WindowBg",         COL.bg },
+    { "ChildBg",          0x00000000 },
+    { "PopupBg",          COL.popup },
+    { "Border",           COL.border },
+    { "FrameBg",          COL.frame },
+    { "FrameBgHovered",   COL.frame_hov },
+    { "FrameBgActive",    COL.frame_act },
+    { "TitleBg",          COL.title },
+    { "TitleBgActive",    COL.title_act },
+    { "TitleBgCollapsed", COL.title },
+    { "Button",           COL.button },
+    { "ButtonHovered",    COL.button_hov },
+    { "ButtonActive",     with_alpha(a, 0x99) },
+    { "Header",           with_alpha(a, 0x30) },
+    { "HeaderHovered",    with_alpha(a, 0x48) },
+    { "HeaderActive",     with_alpha(a, 0x70) },
+    { "Separator",        COL.border },
+    { "Tab",              COL.tab },
+    { "TabHovered",       COL.tab_hov },
+    { "TabActive",        COL.tab_act },
+    { "TabSelected",      COL.tab_act },
+    { "Text",             COL.text },
+    { "TextDisabled",     COL.dim },
+    { "SliderGrab",       a },
+    { "SliderGrabActive", COL.accent_hov },
+    { "CheckMark",        a },
+    { "PlotHistogram",    a },
+    { "ScrollbarBg",      0x00000000 },
+    { "ScrollbarGrab",    COL.scroll },
+    { "TableRowBg",       0x00000000 },
+    { "TableRowBgAlt",    COL.row_alt },
+    { "ResizeGrip",       0x00000000 },
+    { "TextSelectedBg",   with_alpha(a, 0x55) },
+  }
+end
 local THEME_VARS = {
   { "WindowPadding",     14, 12 },
   { "FramePadding",      10, 6 },
@@ -272,6 +403,7 @@ local THEME_VARS = {
   { "ScrollbarSize",     10 },
   { "WindowBorderSize",  0 },
 }
+local FRAME_PAD_X = 10
 
 -- ReaImGui падает при обращении к несуществующему имени, поэтому проверяем через pcall
 local function imgui_has(name)
@@ -281,8 +413,9 @@ local function imgui_has(name)
 end
 
 local function push_theme()
+  update_colors()
   local nc, nv = 0, 0
-  for _, c in ipairs(THEME_COLORS) do
+  for _, c in ipairs(theme_colors()) do
     local id = imgui_has("Col_" .. c[1])
     if id then ImGui.PushStyleColor(ctx, id, c[2]); nc = nc + 1 end
   end
@@ -291,18 +424,6 @@ local function push_theme()
     if id then ImGui.PushStyleVar(ctx, id, v[2], v[3]); nv = nv + 1 end
   end
   return nc, nv
-end
-
--- Настройки вида (общие для всех проектов)
-local VIEW = {
-  fsize   = math.max(1, math.min(#BIG_SIZES, tonumber(r.GetExtState(SEC, "fsize")) or 2)),
-  alpha   = math.max(0.15, math.min(1, tonumber(r.GetExtState(SEC, "alpha")) or 1)),
-  compact = r.GetExtState(SEC, "compact") == "1",
-}
-local function save_view()
-  r.SetExtState(SEC, "fsize", tostring(VIEW.fsize), true)
-  r.SetExtState(SEC, "alpha", string.format("%.2f", VIEW.alpha), true)
-  r.SetExtState(SEC, "compact", VIEW.compact and "1" or "0", true)
 end
 
 -- Мелкие помощники интерфейса
@@ -317,19 +438,37 @@ local function section(label)
 end
 
 local function accent_button(label, w, h)
-  ImGui.PushStyleColor(ctx, ImGui.Col_Button,        ACCENT)
-  ImGui.PushStyleColor(ctx, ImGui.Col_ButtonHovered, 0xFF89AEFF)
-  ImGui.PushStyleColor(ctx, ImGui.Col_ButtonActive,  0xE85C88FF)
-  ImGui.PushStyleColor(ctx, ImGui.Col_Text,          0x1B1016FF)
+  ImGui.PushStyleColor(ctx, ImGui.Col_Button,        COL.accent)
+  ImGui.PushStyleColor(ctx, ImGui.Col_ButtonHovered, COL.accent_hov)
+  ImGui.PushStyleColor(ctx, ImGui.Col_ButtonActive,  COL.accent_act)
+  ImGui.PushStyleColor(ctx, ImGui.Col_Text,          COL.on_accent)
   local clicked = ImGui.Button(ctx, label, w, h)
   ImGui.PopStyleColor(ctx, 4)
   return clicked
 end
 
-local function right_align(w)
-  local avail = ImGui.GetContentRegionAvail(ctx)
+-- Ширина кнопки с такой подписью (без ##id)
+local function button_w(label)
+  return ImGui.CalcTextSize(ctx, (label:gsub("##.*$", ""))) + FRAME_PAD_X * 2
+end
+
+-- Поставить следующий элемент в ту же строку, если влезает, иначе — с новой строки
+local function flow(w)
   ImGui.SameLine(ctx)
-  ImGui.SetCursorPosX(ctx, ImGui.GetCursorPosX(ctx) + math.max(0, avail - w - 8))
+  if ImGui.GetContentRegionAvail(ctx) < w then ImGui.NewLine(ctx) end
+end
+
+-- Обрезать текст с «…», чтобы влез в ширину (для текущего шрифта)
+local function fit_text(s, maxw)
+  if ImGui.CalcTextSize(ctx, s) <= maxw then return s end
+  local chars = {}
+  for _, c in utf8.codes(s) do chars[#chars + 1] = utf8.char(c) end
+  while #chars > 1 do
+    chars[#chars] = nil
+    local t = table.concat(chars):gsub("%s+$", "") .. "…"
+    if ImGui.CalcTextSize(ctx, t) <= maxw then return t end
+  end
+  return "…"
 end
 
 -- Перенос строки по словам под ширину (для текущего шрифта)
@@ -847,17 +986,69 @@ end
 ---------------------------------------------------------------------------
 -- Настройки вида
 ---------------------------------------------------------------------------
-local function draw_view_settings()
-  ImGui.TextColored(ctx, COL.dim, T("view"))
-  ImGui.SetNextItemWidth(ctx, 180)
+local function prompter_controls(width)
+  ImGui.SetNextItemWidth(ctx, width)
   local rv, v = ImGui.SliderInt(ctx, T("font_size") .. "###fs", VIEW.fsize, 1, #BIG_SIZES, "%d")
   if rv then VIEW.fsize = v; save_view() end
-  ImGui.SetNextItemWidth(ctx, 180)
+  ImGui.SetNextItemWidth(ctx, width)
   local rv2, v2 = ImGui.SliderDouble(ctx, T("opacity") .. "###op", VIEW.alpha, 0.15, 1.0, "%.2f")
   if rv2 then VIEW.alpha = v2; save_view() end
   ImGui.TextColored(ctx, COL.faint, T("opacity_note"))
   local rv3, v3 = ImGui.Checkbox(ctx, T("compact") .. "###cmp", VIEW.compact)
   if rv3 then VIEW.compact = v3; save_view() end
+end
+
+-- Быстрое меню «Вид» (кнопка в суфлёре и правый клик)
+local function draw_view_settings()
+  ImGui.TextColored(ctx, COL.dim, T("view"))
+  prompter_controls(180)
+  local rv, v = ImGui.Checkbox(ctx, T("accent_line") .. "###acl_q", VIEW.accent_line)
+  if rv then VIEW.accent_line = v; save_view() end
+  ImGui.TextColored(ctx, COL.faint, T("all_settings"))
+end
+
+-- Вкладка «Настройки»
+local function draw_settings()
+  section(T("sec_theme"))
+  for i, th in ipairs(THEMES) do
+    local label = T(th.name) .. "###th_" .. th.id
+    if i > 1 then flow(button_w(label) + 24) end
+    if ImGui.RadioButton(ctx, label, VIEW.theme == th.id) then VIEW.theme = th.id; save_view() end
+  end
+
+  section(T("sec_accent"))
+  local sw = 30
+  for i, acc in ipairs(ACCENTS) do
+    if i > 1 then flow(sw) end
+    local selected = (VIEW.accent & 0xFFFFFF00) == (acc.c & 0xFFFFFF00)
+    if selected then
+      ImGui.PushStyleColor(ctx, ImGui.Col_Border, COL.text)
+      ImGui.PushStyleVar(ctx, ImGui.StyleVar_FrameBorderSize, 2)
+    end
+    if ImGui.ColorButton(ctx, T(acc.name) .. "###acc" .. i, acc.c, ImGui.ColorEditFlags_NoAlpha, sw, sw) then
+      VIEW.accent = acc.c; save_view()
+    end
+    if selected then ImGui.PopStyleVar(ctx); ImGui.PopStyleColor(ctx) end
+  end
+  -- свой цвет: ColorEdit3 работает с 0xRRGGBB
+  local rv, rgb = ImGui.ColorEdit3(ctx, T("acc_custom") .. "###acc_custom", VIEW.accent >> 8,
+                                   ImGui.ColorEditFlags_NoInputs)
+  if rv then VIEW.accent = ((rgb & 0xFFFFFF) << 8) | 0xFF; save_view() end
+  local rv2, v2 = ImGui.Checkbox(ctx, T("accent_line") .. "###acl", VIEW.accent_line)
+  if rv2 then VIEW.accent_line = v2; save_view() end
+
+  section(T("sec_prompter"))
+  prompter_controls(-170)
+
+  section(T("sec_language"))
+  if ImGui.RadioButton(ctx, "Русский###lang_ru", lang == "ru") then set_lang("ru") end
+  flow(button_w("English") + 24)
+  if ImGui.RadioButton(ctx, "English###lang_en", lang == "en") then set_lang("en") end
+
+  ImGui.Dummy(ctx, 0, 6)
+  if ImGui.Button(ctx, T("reset_view") .. "###reset_view") then
+    if r.MB(T("reset_view_q"), "Vocal Prompter", 4) == 6 then reset_view() end
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -867,21 +1058,26 @@ local function draw_prompter()
   local pos, st = now_pos()
   local recording = st & 4 == 4
 
-  -- Верхняя строка: название песни слева; REC, время и «Aa» справа
+  -- Верхняя строка: название песни слева; REC, время и кнопка «Вид» справа.
+  -- Ширину меряем ДО названия: после него курсор уже на новой строке.
+  local time_s = fmt_time(pos - S.offset)
+  local rec_s  = "● REC"
+  local view_label = T("view") .. "###view"
+  local right_w = ImGui.CalcTextSize(ctx, time_s) + button_w(view_label) + 16
+  if recording then right_w = right_w + ImGui.CalcTextSize(ctx, rec_s) + 8 end
+  local x0 = ImGui.GetCursorPosX(ctx)
+  local full_w = ImGui.GetContentRegionAvail(ctx)
+
   ImGui.PushFont(ctx, F_HEAD)
-  ImGui.TextColored(ctx, S.name ~= "" and COL.next or COL.faint, S.name ~= "" and S.name or "Vocal Prompter")
+  local title = S.name ~= "" and S.name or "Vocal Prompter"
+  ImGui.TextColored(ctx, S.name ~= "" and COL.next or COL.faint, fit_text(title, math.max(16, full_w - right_w - 12)))
   ImGui.PopFont(ctx)
 
-  local time_s = fmt_time(pos - S.offset)
-  local rec_s  = recording and "● REC" or ""
-  local tw = ImGui.CalcTextSize(ctx, time_s)
-  local rw = recording and (ImGui.CalcTextSize(ctx, rec_s) + 10) or 0
-  local bw = ImGui.CalcTextSize(ctx, "Aa") + 12
-  right_align(tw + rw + bw + 16)
+  ImGui.SameLine(ctx, x0 + math.max(0, full_w - right_w))
   if recording then ImGui.TextColored(ctx, COL.rec, rec_s); ImGui.SameLine(ctx) end
   ImGui.TextColored(ctx, COL.dim, time_s)
   ImGui.SameLine(ctx)
-  if ImGui.SmallButton(ctx, "Aa###view") then ImGui.OpenPopup(ctx, "vp_view") end
+  if ImGui.SmallButton(ctx, view_label) then ImGui.OpenPopup(ctx, "vp_view") end
   if ImGui.IsItemHovered(ctx) then ImGui.SetTooltip(ctx, T("compact_tip")) end
   if ImGui.BeginPopup(ctx, "vp_view") then draw_view_settings(); ImGui.EndPopup(ctx) end
 
@@ -959,7 +1155,7 @@ local function draw_prompter()
     else
       local pw = math.min(avail_w * 0.6, 420)
       ImGui.SetCursorPos(ctx, x0 + (avail_w - pw) / 2, y + 6)
-      ImGui.PushStyleColor(ctx, ImGui.Col_FrameBg, 0x26262FFF)
+      ImGui.PushStyleColor(ctx, ImGui.Col_FrameBg, COL.progress)
       ImGui.ProgressBar(ctx, it.progress or 0, pw, 3, "")
       ImGui.PopStyleColor(ctx)
       y = y + 18
@@ -1020,17 +1216,17 @@ local function draw_sync()
   ImGui.PopTextWrapPos(ctx)
 
   if ImGui.Button(ctx, T("tap_restart") .. "###trs") then tap_idx = 1 end
-  ImGui.SameLine(ctx)
+  flow(button_w(T("clear_timing")))
   if ImGui.Button(ctx, T("clear_timing") .. "###clt") then
     if r.MB(T("clear_timing_q"), "Vocal Prompter", 4) == 6 then
       for _, l in ipairs(S.lines) do l.t = nil end
       tap_idx = 1; mark_dirty(); buf_stale = true
     end
   end
-  ImGui.SameLine(ctx)
+  flow(button_w(T("to_markers")))
   if ImGui.Button(ctx, T("to_markers") .. "###mrk") then export_markers() end
 
-  ImGui.SameLine(ctx)
+  flow(button_w(ImGui.IsWindowDocked(ctx) and T("undock") or T("dock")))
   if ImGui.IsWindowDocked(ctx) then
     if ImGui.Button(ctx, T("undock") .. "###dock") then dock_req = 0 end
   else
@@ -1123,7 +1319,7 @@ local function draw_text()
     local nm = song_name(meta.ar, meta.ti)
     set_lines(lines, nm ~= "" and nm or nil)
   end
-  ImGui.SameLine(ctx)
+  flow(button_w(T("open_file")))
   if ImGui.Button(ctx, T("open_file") .. "###open") then
     local ok, path = r.GetUserFileNameForRead("", T("open_title"), "*.txt;*.lrc")
     if ok then
@@ -1136,12 +1332,13 @@ local function draw_text()
       end
     end
   end
-  ImGui.SameLine(ctx)
+  flow(button_w(T("clear")))
   if ImGui.Button(ctx, T("clear") .. "###clear") then
     if r.MB(T("clear_q"), "Vocal Prompter", 4) == 6 then set_lines({}, "") end
   end
   if edit_dirty then
-    ImGui.SameLine(ctx); ImGui.TextColored(ctx, COL.warn, T("not_applied"))
+    flow(ImGui.CalcTextSize(ctx, T("not_applied")))
+    ImGui.TextColored(ctx, COL.warn, T("not_applied"))
   end
 
   section(T("search_head"))
@@ -1286,6 +1483,7 @@ local function loop()
       if ImGui.BeginTabItem(ctx, T("tab_prompter") .. "###tp") then draw_prompter(); ImGui.EndTabItem(ctx) end
       if ImGui.BeginTabItem(ctx, T("tab_sync")     .. "###ts") then draw_sync();     ImGui.EndTabItem(ctx) end
       if ImGui.BeginTabItem(ctx, T("tab_text")     .. "###tt") then draw_text();     ImGui.EndTabItem(ctx) end
+      if ImGui.BeginTabItem(ctx, T("tab_settings") .. "###tset") then draw_settings(); ImGui.EndTabItem(ctx) end
 
       -- переключатель языка справа
       if ImGui.TabItemButton(ctx, (lang == "ru" and "RU · en" or "ru · EN") .. "###lang",
@@ -1329,7 +1527,8 @@ if VP_TEST then
     export_markers = export_markers, start_job = start_job, poll_job = poll_job,
     start_search = start_search, search_track = search_track, poll_search = poll_search,
     build_song_list = build_song_list, imgui_has = imgui_has, loop = loop,
-    S = function() return S end, SR = SR, VIEW = VIEW, jobs = jobs,
+    S = function() return S end, SR = SR, VIEW = VIEW, jobs = jobs, COL = COL,
+    THEMES = THEMES, ACCENTS = ACCENTS, update_colors = update_colors, mix = mix, fit_text = fit_text,
     tap_idx = function() return tap_idx end, dirty = function() return dirty end,
     queries = function() return q_artist, q_title end,
   }

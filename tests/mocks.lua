@@ -197,6 +197,26 @@ function M.new_imgui(api_path)
     if c ~= G.ctx then err(name .. ": first argument must be the context") end
   end
   local function text(s) G.texts[#G.texts + 1] = s end
+
+  -- Простая модель раскладки по X: хватает, чтобы ловить элементы за краем окна
+  local PAD_X, SPACING, FRAME_PAD_X, CHAR_W = 14, 8, 10, 8
+  G.cx, G.last_end = PAD_X, PAD_X
+  local function visible_label(label) return (label:gsub("##.*$", "")) end
+  local function text_w(s) return utf8.len(s) * CHAR_W end
+  local function item(w)
+    G.item_x = G.cx
+    G.last_end = G.cx + w
+    G.cx = PAD_X
+  end
+  local function button_item(name, label)
+    local w = text_w(visible_label(label)) + FRAME_PAD_X * 2
+    local right = G.cx + w
+    if right > PAD_X + G.avail_w + 0.5 then
+      error(("ImGui mock: %s '%s' is outside the window (right edge %.0f > %.0f)")
+        :format(name, visible_label(label), right, PAD_X + G.avail_w), 3)
+    end
+    item(w)
+  end
   local function clicked(label) return G.clicks[id_of(label)] == true end
 
   local impl = {}
@@ -247,12 +267,44 @@ function M.new_imgui(api_path)
 
   -- Виджеты
   local function button(name)
-    return function(c, label, ...) check_ctx(name, c); text(label); return clicked(label) end
+    return function(c, label, ...)
+      check_ctx(name, c); text(label)
+      if name ~= "TabItemButton" then button_item(name, label) end
+      return clicked(label)
+    end
   end
   impl.Button = button("Button")
   impl.SmallButton = button("SmallButton")
   impl.TabItemButton = button("TabItemButton")
-  impl.Selectable = function(c, label, selected) check_ctx("Selectable", c); text(label); return clicked(label) end
+  impl.RadioButton = function(c, label, active)
+    check_ctx("RadioButton", c)
+    if type(active) ~= "boolean" then err("RadioButton: active must be boolean") end
+    text(label)
+    local w = text_w(visible_label(label)) + 28
+    if G.cx + w > PAD_X + G.avail_w + 0.5 then
+      error(("ImGui mock: RadioButton '%s' is outside the window"):format(visible_label(label)), 2)
+    end
+    item(w)
+    return clicked(label)
+  end
+  impl.ColorButton = function(c, id, col, flags, w, h)
+    check_ctx("ColorButton", c)
+    if type(col) ~= "number" then err("ColorButton: color must be a number") end
+    w = w or 20
+    if G.cx + w > PAD_X + G.avail_w + 0.5 then error("ImGui mock: ColorButton '" .. id .. "' is outside the window", 2) end
+    item(w)
+    return clicked(id)
+  end
+  impl.ColorEdit3 = function(c, label, col, flags)
+    check_ctx("ColorEdit3", c)
+    if type(col) ~= "number" then err("ColorEdit3: color must be a number") end
+    item(text_w(visible_label(label)) + 30)
+    local id = id_of(label)
+    if G.inputs[id] ~= nil then return true, G.inputs[id] end
+    return false, col
+  end
+  impl.NewLine = function(c) check_ctx("NewLine", c); G.cx = PAD_X end
+  impl.Selectable = function(c, label, selected) check_ctx("Selectable", c); text(label); item(G.avail_w - (G.cx - PAD_X)); return clicked(label) end
   impl.Checkbox = function(c, label, v)
     check_ctx("Checkbox", c); local id = id_of(label)
     if G.inputs[id] ~= nil then return true, G.inputs[id] end
@@ -263,6 +315,7 @@ function M.new_imgui(api_path)
       check_ctx(name, c)
       if type(label) ~= "string" then err(name .. ": label must be a string") end
       local id = id_of(label)
+      G.cx = 14
       if G.inputs[id] ~= nil then local nv = G.inputs[id]; return true, nv end
       return false, v
     end
@@ -303,6 +356,7 @@ function M.new_imgui(api_path)
       end
       if type(s) ~= "string" then err(name .. ": text must be a string, got " .. type(s)) end
       text(s)
+      if name ~= "SetTooltip" then item(text_w(s)) end
     end
   end
   impl.Text = texty("Text"); impl.TextColored = texty("TextColored"); impl.TextWrapped = texty("TextWrapped")
@@ -310,17 +364,24 @@ function M.new_imgui(api_path)
   impl.SetTooltip = texty("SetTooltip")
 
   impl.CalcTextSize = function(c, s) check_ctx("CalcTextSize", c); return utf8.len(s) * 8, 16 end
-  impl.GetContentRegionAvail = function(c) return G.avail_w, G.avail_h end
-  impl.GetCursorPosX = function() return 14 end
+  impl.GetContentRegionAvail = function(c) return G.avail_w - (G.cx - PAD_X), G.avail_h end
+  impl.GetCursorPosX = function() return G.cx end
   impl.GetCursorPosY = function() return 40 end
   impl.SetCursorPos = function(c, x, y)
     if type(x) ~= "number" or type(y) ~= "number" or x ~= x or y ~= y then err("SetCursorPos: bad coords") end
+    G.cx = x
   end
-  impl.SetCursorPosX = function(c, x) if type(x) ~= "number" or x ~= x then err("SetCursorPosX: bad x") end end
+  impl.SetCursorPosX = function(c, x) if type(x) ~= "number" or x ~= x then err("SetCursorPosX: bad x") end; G.cx = x end
+  impl.SameLine = function(c, offset, spacing)
+    check_ctx("SameLine", c)
+    if offset and offset ~= 0 then G.cx = offset else G.cx = G.last_end + (spacing or SPACING) end
+  end
+  impl.Dummy = function(c, w, h) check_ctx("Dummy", c); item(w or 0) end
   impl.GetTextLineHeightWithSpacing = function() return 20 end
   impl.ProgressBar = function(c, frac, w, h, overlay)
     check_ctx("ProgressBar", c)
     if type(frac) ~= "number" or frac < 0 or frac > 1 then err("ProgressBar: fraction out of range: " .. tostring(frac)) end
+    item(w and w > 0 and w or G.avail_w)
   end
   impl.IsKeyPressed = function(c, key) return G.keys[key] == true end
   impl.IsAnyItemActive = function() return false end
@@ -337,7 +398,7 @@ function M.new_imgui(api_path)
     G.next_sizes[#G.next_sizes + 1] = { w = w, h = h, cond = cond }
   end
 
-  local NOOP = { "SameLine", "Separator", "Spacing", "Dummy", "SetNextItemWidth",
+  local NOOP = { "Separator", "Spacing", "SetNextItemWidth",
     "SetNextWindowBgAlpha", "SetNextWindowDockID", "TableNextRow", "TableNextColumn", "TableSetupColumn" }
   for _, n in ipairs(NOOP) do impl[n] = impl[n] or function(c) check_ctx(n, c) end end
 
@@ -361,6 +422,7 @@ function M.new_imgui(api_path)
 
   function G.begin_frame()
     G.texts, G.stack, G.colors, G.vars, G.next_sizes = {}, {}, 0, 0, {}
+    G.cx, G.last_end = PAD_X, PAD_X
   end
   function G.end_frame()
     if #G.stack > 0 then

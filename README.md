@@ -9,6 +9,7 @@ A lyrics teleprompter for recording vocals in REAPER. While you record or play b
 - **Tap timings** to your backing track (Enter / T at the start of each line), then fine-tune by dragging
 - Lyrics, song name and timings are **saved inside each project** — open another project and its lyrics load automatically
 - Big centered text, adjustable size, **semi-transparent window**, "prompter only" compact mode
+- **Themes and colors**: dark / midnight / light, 8 accent colors or your own
 - **Russian / English** interface
 
 ## Requirements
@@ -41,7 +42,7 @@ To update, replace the file with a new version and restart the script.
 
 ## Usage
 
-The window has three tabs.
+The window has four tabs.
 
 ### Lyrics
 
@@ -62,13 +63,23 @@ The window has three tabs.
 
 Shows the song name, a REC indicator and the time; in the middle — the previous line (faint), **the current line** (large), a progress bar to the next line, and two upcoming lines.
 
-**Aa** button or **right-click anywhere** → view settings:
+The **View** button (top right) or **right-click anywhere** → quick view settings:
 
 - **Text size** — 4 steps
 - **Background opacity** — transparency is visible when the window is undocked
 - **Prompter only** — hides the tabs; handy as a small floating window over REAPER while recording
 
 The **RU · EN** button to the right of the tabs switches the interface language.
+
+### Settings
+
+- **Theme** — Dark, Midnight (dark blue) or Light
+- **Accent color** — 8 presets or **Custom color** (color picker); used for buttons, the progress bar and highlights. Text on accent buttons switches between dark and light automatically
+- **Current line in accent color** — highlight the line you're singing
+- **Prompter** — text size, background opacity, prompter-only mode
+- **Interface language**, **Reset settings**
+
+Settings are shared by all projects. To leave prompter-only mode, right-click the window and untick it.
 
 ## Where data is stored
 
