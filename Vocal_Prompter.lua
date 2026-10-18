@@ -359,6 +359,9 @@ local edit_buf   = ""
 local buf_stale  = true
 local edit_dirty = false
 local dock_req   = nil
+-- Размер окна до сворачивания (см. restore_after_collapse в главном цикле)
+local WIN = { w = nil, h = nil, collapsed = false, restore = false }
+local COLLAPSED_MAX_H = 60   -- выше этой высоты окно точно не «полоска-заголовок»
 local q_artist, q_title = "", ""
 
 local function mark_dirty() dirty = true end
@@ -1247,17 +1250,34 @@ local function loop()
 
   if dock_req ~= nil then ImGui.SetNextWindowDockID(ctx, dock_req); dock_req = nil end
   ImGui.SetNextWindowSize(ctx, 480, 660, ImGui.Cond_FirstUseEver)
+  -- Окно развернули после сворачивания, а оно осталось полоской: возвращаем размер.
+  -- Причина в ReaImGui: если пока окно свёрнуто, приходит событие изменения размера
+  -- от Windows (PlatformRequestResize), Dear ImGui записывает высоту заголовка в
+  -- «полный» размер окна (SizeFull), и разворачивать становится некуда.
+  if WIN.restore and WIN.w then
+    ImGui.SetNextWindowSize(ctx, WIN.w, WIN.h, ImGui.Cond_Always)
+    WIN.restore = false
+  end
   ImGui.SetNextWindowBgAlpha(ctx, VIEW.alpha)
   local nc, nv = push_theme()
   ImGui.PushFont(ctx, F_UI)
 
   local wtitle = S.name ~= "" and ("Vocal Prompter — " .. S.name) or "Vocal Prompter"
-  -- NoCollapse: у плавающих окон ReaImGui после сворачивания в заголовок окно
-  -- не разворачивалось обратно, а сворачивание суфлёру и не нужно
-  -- (для маленького окна есть режим «только суфлёр»)
-  local wflags = ImGui.WindowFlags_NoCollapse
-  if VIEW.compact then wflags = wflags | ImGui.WindowFlags_NoScrollbar end
+  local wflags = VIEW.compact and ImGui.WindowFlags_NoScrollbar or 0
   local visible, open = ImGui.Begin(ctx, wtitle .. "###VocalPrompter", true, wflags)
+  if not visible then
+    WIN.collapsed = true          -- свёрнуто (или неактивная вкладка дока)
+  elseif ImGui.IsWindowDocked(ctx) then
+    WIN.collapsed = false         -- в доке размер задаёт REAPER
+  else
+    local w, h = ImGui.GetWindowSize(ctx)
+    if WIN.collapsed then
+      WIN.collapsed = false
+      if h <= COLLAPSED_MAX_H and WIN.h and WIN.h > h + 20 then WIN.restore = true end
+    elseif h > COLLAPSED_MAX_H then
+      WIN.w, WIN.h = w, h
+    end
+  end
   if visible then
     if VIEW.compact then
       draw_prompter()

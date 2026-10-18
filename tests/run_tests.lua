@@ -599,9 +599,50 @@ test("настройки вида сохраняются", function()
   eq(v3.VIEW.fsize, 4, "размер ограничен"); near(v3.VIEW.alpha, 0.15, 1e-9, "прозрачность ограничена")
 end)
 
-test("окно нельзя свернуть (баг с разворотом)", function()
+local function forced_size(G)
+  for _, ns in ipairs(G.next_sizes) do
+    if ns.cond == G.module.Cond_Always then return ns end
+  end
+end
+
+test("сворачивание: окно разворачивается обратно в прежний размер", function()
+  local v2, R, G = prepare("lyrics")
+  G.win_w, G.win_h = 500, 700; M.frame(v2, G)          -- обычное окно
+  falsy(forced_size(G), "без сворачивания размер не трогаем")
+  G.begin_visible = false; M.frame(v2, G); M.frame(v2, G)   -- свернули
+  -- развернули, но ReaImGui оставил высоту заголовка (баг SizeFull)
+  G.begin_visible = true; G.win_w, G.win_h = 500, 27; M.frame(v2, G)
+  G.win_w, G.win_h = 500, 27; M.frame(v2, G)
+  local ns = forced_size(G)
+  truthy(ns, "размер не восстановлен")
+  eq(ns.w, 500); eq(ns.h, 700)
+  G.win_h = 700; M.frame(v2, G)
+  falsy(forced_size(G), "восстанавливаем один раз")
+end)
+
+test("сворачивание: если разворот сработал сам, ничего не делаем", function()
+  local v2, R, G = prepare("lyrics")
+  G.win_w, G.win_h = 500, 700; M.frame(v2, G)
+  G.begin_visible = false; M.frame(v2, G)
+  G.begin_visible = true; M.frame(v2, G); M.frame(v2, G)
+  falsy(forced_size(G))
+end)
+
+test("сворачивание: окно в доке не трогаем; маленький размер не запоминаем", function()
+  local v2, R, G = prepare("lyrics")
+  G.docked = true; G.win_w, G.win_h = 300, 40; M.frame(v2, G)
+  G.begin_visible = false; M.frame(v2, G)                 -- неактивная вкладка дока
+  G.begin_visible = true; M.frame(v2, G); M.frame(v2, G)
+  falsy(forced_size(G), "в доке размер задаёт REAPER")
+  G.docked = false; G.win_w, G.win_h = 400, 50; M.frame(v2, G)   -- сжали вручную
+  G.begin_visible = false; M.frame(v2, G)
+  G.begin_visible = true; G.win_h = 27; M.frame(v2, G); M.frame(v2, G)
+  falsy(forced_size(G), "без запомненного нормального размера не восстанавливаем")
+end)
+
+test("кнопка сворачивания на месте (нет NoCollapse)", function()
   local f = assert(io.open(SCRIPT, "r")); local src = f:read("a"); f:close()
-  truthy(src:find("WindowFlags_NoCollapse", 1, true))
+  falsy(src:find("WindowFlags_NoCollapse", 1, true))
 end)
 
 ---------------------------------------------------------------------------

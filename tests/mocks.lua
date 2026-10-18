@@ -329,7 +329,15 @@ function M.new_imgui(api_path)
   impl.IsWindowDocked = function() return G.docked == true end
   impl.OpenPopup = function(c, id) G.popups[id] = true end
 
-  local NOOP = { "SameLine", "Separator", "Spacing", "Dummy", "SetNextItemWidth", "SetNextWindowSize",
+  G.win_w, G.win_h = 480, 660
+  G.next_sizes = {}
+  impl.GetWindowSize = function(c) check_ctx("GetWindowSize", c); return G.win_w, G.win_h end
+  impl.SetNextWindowSize = function(c, w, h, cond)
+    check_ctx("SetNextWindowSize", c)
+    G.next_sizes[#G.next_sizes + 1] = { w = w, h = h, cond = cond }
+  end
+
+  local NOOP = { "SameLine", "Separator", "Spacing", "Dummy", "SetNextItemWidth",
     "SetNextWindowBgAlpha", "SetNextWindowDockID", "TableNextRow", "TableNextColumn", "TableSetupColumn" }
   for _, n in ipairs(NOOP) do impl[n] = impl[n] or function(c) check_ctx(n, c) end end
 
@@ -352,7 +360,7 @@ function M.new_imgui(api_path)
   })
 
   function G.begin_frame()
-    G.texts, G.stack, G.colors, G.vars = {}, {}, 0, 0
+    G.texts, G.stack, G.colors, G.vars, G.next_sizes = {}, {}, 0, 0, {}
   end
   function G.end_frame()
     if #G.stack > 0 then
