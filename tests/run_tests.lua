@@ -478,6 +478,12 @@ local function prepare(state)
                  "Nina Simone — Feeling Good")
   end
   if state == "untimed" then v2.set_lines(v2.parse_lyrics("A\nB")) end
+  if state == "marks" then
+    local L = v2.S().lines
+    L[1].marks = { { w = 1, pos = "a", s = "V" }, { w = 4, pos = "b", s = "↑" } }
+    L[3].marks = { { w = 2, pos = "a", s = "мой" } }
+    v2.set_marks_edit(true)
+  end
   if state == "songs" then
     v2.SR.view = "songs"; v2.SR.artist = "Nina Simone"
     v2.SR.songs = { { title = "Feeling Good", album = "Spell", dur = 176, lrc = { syncedLyrics = "x" } },
@@ -495,7 +501,7 @@ local function prepare(state)
   return v2, R, G, fs
 end
 
-local STATES = { "empty", "untimed", "lyrics", "songs", "versions", "searching", "error" }
+local STATES = { "empty", "untimed", "lyrics", "marks", "songs", "versions", "searching", "error" }
 for _, lang in ipairs({ "ru", "en" }) do
   for _, tab in ipairs({ "tp", "ts", "tt", "tset" }) do
     test(("вкладка %s, язык %s: все состояния рисуются, Begin/End и Push/Pop парные"):format(tab, lang), function()
@@ -761,6 +767,107 @@ test("mix и fit_text", function()
   local s = vp.fit_text("Nina Simone — I Put a Spell on You", 8 * 12)
   truthy(utf8.len(s) <= 12 and s:sub(-3) == "…", s)
   eq(vp.fit_text("short", 1000), "short")
+end)
+
+test("все вкладки с пометками помещаются в узкое окно", function()
+  for _, tab in ipairs({ "tp", "ts" }) do
+    for _, w in ipairs({ 260, 340, 480 }) do
+      for _, lang in ipairs({ "ru", "en" }) do
+        local v2, R, G = prepare("marks")
+        v2.set_lang(lang); G.tab = tab; G.avail_w = w; R.play_state = 1; R.play_pos = 1.5
+        local ok, e = pcall(M.frame, v2, G)
+        if not ok then error(("tab=%s width=%d lang=%s: %s"):format(tab, w, lang, e), 0) end
+      end
+    end
+  end
+end)
+
+---------------------------------------------------------------------------
+group("Пометки над и под словами")
+---------------------------------------------------------------------------
+test("клик ставит, повторный убирает, другой значок заменяет, ластик стирает", function()
+  local v2 = fresh()
+  local line = { text = "Ooh baby can you", marks = {} }
+  local tool = { stamp = "V", pos = "a", eraser = false }
+  v2.apply_tool(line, 2, tool); eq(#line.marks, 1); eq(line.marks[1].w, 2); eq(line.marks[1].pos, "a")
+  v2.apply_tool(line, 2, tool); eq(#line.marks, 0, "повторный клик убирает")
+  v2.apply_tool(line, 2, tool); tool.stamp = "↑"; v2.apply_tool(line, 2, tool)
+  eq(#line.marks, 1); eq(line.marks[1].s, "↑", "замена значка")
+  tool.pos = "b"; tool.stamp = "~"; v2.apply_tool(line, 2, tool)
+  eq(#line.marks, 2, "над и под одновременно")
+  tool.eraser = true; v2.apply_tool(line, 2, tool)
+  eq(#line.marks, 0, "ластик")
+end)
+
+test("пометки сохраняются в проекте, в том числе со спецсимволами", function()
+  local v2, R = fresh()
+  v2.set_lines(v2.parse_lyrics("[00:01.00]One two three\n[00:02.00]Four"))
+  v2.S().lines[1].marks = { { w = 1, pos = "a", s = "V" }, { w = 3, pos = "b", s = "a;b:c%d" } }
+  v2.save_state("P1")
+  eq(R.ext.P1.M2, nil, "у строк без пометок ключа нет")
+  v2.load_state("P1")
+  local m = v2.S().lines[1].marks
+  eq(#m, 2); eq(m[1].s, "V"); eq(m[2].s, "a;b:c%d"); eq(m[2].pos, "b"); eq(m[2].w, 3)
+  eq(#v2.S().lines[2].marks, 0)
+end)
+
+test("после «Применить» пометки остаются на строках с тем же текстом", function()
+  local v2 = fresh()
+  v2.set_lines(v2.parse_lyrics("Same line\nOther line"))
+  v2.S().lines[1].marks = { { w = 1, pos = "a", s = "V" } }
+  v2.S().lines[2].marks = { { w = 2, pos = "b", s = "!" } }
+  v2.set_lines(v2.parse_lyrics("[00:01.00]Same line\n[00:03.00]Changed line"))
+  eq(#(v2.S().lines[1].marks or {}), 1, "текст тот же — пометка осталась")
+  eq(#(v2.S().lines[2].marks or {}), 0, "текст изменился — пометка не переезжает")
+end)
+
+test("режим пометок: клик по слову ставит выбранный значок и рисует его", function()
+  local v2, R, G = fresh()
+  v2.set_lines(v2.parse_lyrics("[00:01.00]Birds flying high"))
+  v2.set_marks_edit(true); G.tab = "ts"
+  G.clicks.stamp2 = true; M.frame(v2, G); G.clicks = {}      -- выбрали «↑»
+  G.clicks.pb = true; M.frame(v2, G); G.clicks = {}          -- «под словом»
+  G.clicks.w2 = true; M.frame(v2, G); G.clicks = {}          -- клик по «flying»
+  local m = v2.S().lines[1].marks
+  eq(#m, 1); eq(m[1].w, 2); eq(m[1].pos, "b"); eq(m[1].s, "↑")
+  M.frame(v2, G)
+  local seen = false
+  for _, d in ipairs(G.drawn) do if d.s == "↑" then seen = true end end
+  truthy(seen, "значок нарисован в редакторе")
+  M.frame(v2, G); truthy(R.ext.P1.M1, "пометка сохранена в проект")
+end)
+
+test("свой значок: добавить, выбрать, сохранить, убрать правым кликом", function()
+  local v2, R, G = fresh()
+  v2.set_lines(v2.parse_lyrics("La la"))
+  v2.set_marks_edit(true); G.tab = "ts"
+  G.inputs.newstamp = "вдох"; M.frame(v2, G); G.inputs = {}
+  G.clicks.addstamp = true; M.frame(v2, G); G.clicks = {}
+  eq(v2.TOOL.stamp, "вдох"); eq(R.gext["VocalPrompter/stamps"], "вдох")
+  local v3 = fresh({ ext = { ["VocalPrompter/stamps"] = "вдох\nmf" } })
+  eq(#v3.CUSTOM_STAMPS, 2)
+  local idx = #v2.DEFAULT_STAMPS + 1
+  G.rclicks["stamp" .. idx] = true; M.frame(v2, G); G.rclicks = {}
+  eq(R.gext["VocalPrompter/stamps"], "", "значок убран из набора")
+  eq(v2.add_custom_stamp("   "), nil, "пустой значок не добавляется")
+  eq(v2.add_custom_stamp("очень-длинный-значок"), "очень-дл", "не длиннее 8 символов")
+end)
+
+test("суфлёр рисует пометки над и под словами; их можно скрыть", function()
+  local v2, R, G = prepare("marks")
+  v2.set_marks_edit(false); v2.S().lead = 0
+  R.play_state = 1; R.play_pos = 1.5
+  M.frame(v2, G)
+  truthy(G.has_text("V"), "пометка над словом"); truthy(G.has_text("↑"), "пометка под словом")
+  v2.VIEW.show_marks = false
+  M.frame(v2, G)
+  falsy(G.has_text("↑"), "пометки скрыты настройкой")
+end)
+
+test("wrap_words помнит, какие слова в какой строке", function()
+  local lines = vp.wrap_words({ "one", "two", "three", "four" }, 8 * 10)   -- мок: 8 px на символ
+  eq(#lines, 2); eq(lines[1].from, 1); eq(lines[1].to, 2); eq(lines[2].from, 3); eq(lines[2].to, 4)
+  eq(lines[2].text, "three four")
 end)
 
 test("кнопка сворачивания на месте (нет NoCollapse)", function()

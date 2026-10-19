@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- **Marks above and below words** — breath marks and anything else you need. Sync tab → **Marking mode**: pick a mark (V, ↑, ↓, ~, >, !, p, f or your own), choose *Above word* / *Below word*, click words. Click again to remove; the eraser clears a word. Right-click a custom mark to remove it from the set
+- Marks are drawn in the prompter over/under the right words (accent color on the current line) and can be hidden in Settings
+- Marks are saved in the project and stay on lines whose text didn't change when you re-apply lyrics
+- CI also checks the script for accidental global names
+
 ## 1.1.1
 
 - Fixed: the search fields couldn't be cleared — the old title came back and "Search" used it. With `InputTextFlags_EnterReturnsTrue` ReaImGui only returns the edited text on Enter; the fields now update live and Enter is detected separately

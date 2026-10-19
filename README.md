@@ -9,6 +9,7 @@ A lyrics teleprompter for recording vocals in REAPER. While you record or play b
 - Paste lyrics, open a `.txt` / `.lrc` file, or **search online** ([LRCLIB](https://lrclib.net)) — often with ready-made timings
 - **Browse an artist's songs**: type only the artist, pick a song from the list, pick a lyrics version
 - **Tap timings** to your backing track (Enter / T at the start of each line), then fine-tune by dragging
+- **Marks above or below words** — breath marks, accents, dynamics or your own symbols
 - Lyrics, song name and timings are **saved inside each project** — open another project and its lyrics load automatically
 - Big centered text, adjustable size, **semi-transparent window**, "prompter only" compact mode
 - **Themes and colors**: dark / midnight / light, 8 accent colors or your own
@@ -60,6 +61,7 @@ The window has four tabs.
 - **Show early by** — how far ahead a line appears (default 0.3 s), so you have time to breathe.
 - **TAP** (or **Enter** / **T**) — play the backing track and tap at the start of each line. Click a line in the list to re-tap from it. Drag a time value to fine-tune it; **>** jumps the edit cursor to that line.
 - **To markers** — puts every line on the timeline as a project marker.
+- **Marking mode** — put marks above or below words (breath **V**, **↑ ↓**, **~**, **>**, **!**, **p**, **f**, or type your own and press **Add**). Pick a mark and *Above word* / *Below word*, then click words in the list. Click the same word again to remove the mark, use **Eraser** to clear a word, right-click a custom mark to remove it from the set. Marks are saved in the project.
 
 ### Prompter
 
@@ -78,7 +80,7 @@ The **RU · EN** button to the right of the tabs switches the interface language
 - **Theme** — Dark, Midnight (dark blue) or Light
 - **Accent color** — 8 presets or **Custom color** (color picker); used for buttons, the progress bar and highlights. Text on accent buttons switches between dark and light automatically
 - **Current line in accent color** — highlight the line you're singing
-- **Prompter** — text size, background opacity, prompter-only mode
+- **Prompter** — text size, background opacity, prompter-only mode, show/hide marks
 - **Interface language**, **Reset settings**
 
 Settings are shared by all projects. To leave prompter-only mode, right-click the window and untick it.

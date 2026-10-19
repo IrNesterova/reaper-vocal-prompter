@@ -269,6 +269,7 @@ function M.new_imgui(api_path)
   local function button(name)
     return function(c, label, ...)
       check_ctx(name, c); text(label)
+      G.last_id = id_of(label)
       if name ~= "TabItemButton" then button_item(name, label) end
       return clicked(label)
     end
@@ -312,7 +313,31 @@ function M.new_imgui(api_path)
     return false, col
   end
   impl.NewLine = function(c) check_ctx("NewLine", c); G.cx = PAD_X end
-  impl.Selectable = function(c, label, selected) check_ctx("Selectable", c); text(label); item(G.avail_w - (G.cx - PAD_X)); return clicked(label) end
+  impl.Selectable = function(c, label, selected, flags, w, h)
+    check_ctx("Selectable", c); text(label)
+    G.last_id = id_of(label)
+    if w and w > 0 then
+      if G.cx + w > PAD_X + G.avail_w + 0.5 then
+        error(("ImGui mock: Selectable '%s' is outside the window"):format(label), 2)
+      end
+      item(w)
+    else
+      item(G.avail_w - (G.cx - PAD_X))
+    end
+    return clicked(label)
+  end
+  G.rclicks, G.drawn = {}, {}
+  impl.IsItemClicked = function(c, btn) return G.rclicks[G.last_id] == true end
+  impl.GetItemRectMin = function(c) return G.item_x or PAD_X, 100 end
+  impl.GetWindowDrawList = function(c) check_ctx("GetWindowDrawList", c); return { "drawlist" } end
+  impl.DrawList_AddText = function(dl, x, y, col, s)
+    if type(dl) ~= "table" or dl[1] ~= "drawlist" then err("DrawList_AddText: first argument must be a draw list") end
+    if type(x) ~= "number" or type(y) ~= "number" or type(col) ~= "number" or type(s) ~= "string" then
+      err("DrawList_AddText: bad arguments")
+    end
+    G.drawn[#G.drawn + 1] = { x = x, y = y, s = s, col = col }
+  end
+  impl.GetTextLineHeight = function(c) return 16 end
   impl.Checkbox = function(c, label, v)
     check_ctx("Checkbox", c); local id = id_of(label)
     if G.inputs[id] ~= nil then return true, G.inputs[id] end
@@ -441,7 +466,7 @@ function M.new_imgui(api_path)
   })
 
   function G.begin_frame()
-    G.texts, G.stack, G.colors, G.vars, G.next_sizes = {}, {}, 0, 0, {}
+    G.texts, G.stack, G.colors, G.vars, G.next_sizes, G.drawn = {}, {}, 0, 0, {}, {}
     G.cx, G.last_end = PAD_X, PAD_X
   end
   function G.end_frame()

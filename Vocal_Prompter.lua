@@ -1,5 +1,5 @@
 -- @description Vocal Prompter — lyrics teleprompter for recording vocals
--- @version 1.1.1
+-- @version 1.2.0
 -- @author Irina Nesterova
 -- @license MIT
 -- @link https://github.com/IrNesterova/reaper-vocal-prompter
@@ -77,6 +77,15 @@ local STR = {
     song            = "Песня",
     view            = "Вид",
     tab_settings    = "Настройки",
+    marks_edit      = "Режим пометок",
+    marks_hint      = "Выбери значок и положение, потом кликай по словам. Повторный клик убирает значок, ластик стирает всё со слова.",
+    pos_above       = "Над словом",
+    pos_below       = "Под словом",
+    eraser          = "Ластик",
+    own_stamp       = "Свой значок",
+    add_stamp       = "Добавить",
+    stamp_tip       = "Правый клик — убрать из набора",
+    show_marks      = "Показывать пометки в суфлёре",
     sec_theme       = "Тема",
     theme_dark      = "Тёмная",
     theme_midnight  = "Полночь",
@@ -170,6 +179,15 @@ local STR = {
     song            = "Song",
     view            = "View",
     tab_settings    = "Settings",
+    marks_edit      = "Marking mode",
+    marks_hint      = "Pick a mark and a position, then click words. Click again to remove the mark; the eraser clears a word.",
+    pos_above       = "Above word",
+    pos_below       = "Below word",
+    eraser          = "Eraser",
+    own_stamp       = "Your own mark",
+    add_stamp       = "Add",
+    stamp_tip       = "Right-click to remove from the set",
+    show_marks      = "Show marks in the prompter",
     sec_theme       = "Theme",
     theme_dark      = "Dark",
     theme_midnight  = "Midnight",
@@ -307,7 +325,8 @@ local ACCENTS = {
 }
 
 -- Настройки вида (общие для всех проектов)
-local VIEW_DEFAULTS = { fsize = 2, alpha = 1, compact = false, theme = "dark", accent = 0xFF6F9CFF, accent_line = false }
+local VIEW_DEFAULTS = { fsize = 2, alpha = 1, compact = false, theme = "dark", accent = 0xFF6F9CFF, accent_line = false,
+                        show_marks = true }
 local function load_view()
   local function num(k) return tonumber(r.GetExtState(SEC, k)) end
   local th = r.GetExtState(SEC, "theme")
@@ -318,6 +337,7 @@ local function load_view()
     theme       = THEME_BY_ID[th] and th or VIEW_DEFAULTS.theme,
     accent      = ((num("accent") or VIEW_DEFAULTS.accent) & 0xFFFFFF00) | 0xFF,
     accent_line = r.GetExtState(SEC, "accent_line") == "1",
+    show_marks  = r.GetExtState(SEC, "show_marks") ~= "0",
   }
 end
 local VIEW = load_view()
@@ -328,6 +348,7 @@ local function save_view()
   r.SetExtState(SEC, "theme", VIEW.theme, true)
   r.SetExtState(SEC, "accent", tostring(VIEW.accent), true)
   r.SetExtState(SEC, "accent_line", VIEW.accent_line and "1" or "0", true)
+  r.SetExtState(SEC, "show_marks", VIEW.show_marks and "1" or "0", true)
 end
 local function reset_view()
   for k, v in pairs(VIEW_DEFAULTS) do VIEW[k] = v end
@@ -487,6 +508,110 @@ local function wrap_lines(text, maxw)
   return out
 end
 
+-- То же, но по списку слов: { {from=, to=, text=} } — чтобы знать, какие слова в какой строке
+local function wrap_words(words, maxw)
+  local out, from, line = {}, 1, ""
+  for i, word in ipairs(words) do
+    local cand = line == "" and word or (line .. " " .. word)
+    if line ~= "" and ImGui.CalcTextSize(ctx, cand) > maxw then
+      out[#out + 1] = { from = from, to = i - 1, text = line }
+      from, line = i, word
+    else
+      line = cand
+    end
+  end
+  if line ~= "" then out[#out + 1] = { from = from, to = #words, text = line } end
+  return out
+end
+
+---------------------------------------------------------------------------
+-- Пометки над/под словами: line.marks = { {w = номер слова, pos = "a"|"b", s = значок} }
+---------------------------------------------------------------------------
+local DEFAULT_STAMPS = { "V", "↑", "↓", "~", ">", "!", "p", "f" }
+
+local function words_of(text)
+  local w = {}
+  for word in text:gmatch("%S+") do w[#w + 1] = word end
+  return w
+end
+
+local function custom_stamps()
+  local list = {}
+  for st in (r.GetExtState(SEC, "stamps") .. "\n"):gmatch("([^\n]*)\n") do
+    if st ~= "" then list[#list + 1] = st end
+  end
+  return list
+end
+local CUSTOM_STAMPS = custom_stamps()
+local function save_custom_stamps()
+  r.SetExtState(SEC, "stamps", table.concat(CUSTOM_STAMPS, "\n"), true)
+end
+local function add_custom_stamp(st)
+  st = st:gsub("[\r\n]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+  if st == "" then return nil end
+  if utf8.len(st) and utf8.len(st) > 8 then
+    st = st:sub(1, utf8.offset(st, 9) - 1)
+  end
+  for _, d in ipairs(DEFAULT_STAMPS) do if d == st then return st end end
+  for _, c in ipairs(CUSTOM_STAMPS) do if c == st then return st end end
+  CUSTOM_STAMPS[#CUSTOM_STAMPS + 1] = st
+  save_custom_stamps()
+  return st
+end
+local function remove_custom_stamp(st)
+  for i, c in ipairs(CUSTOM_STAMPS) do
+    if c == st then table.remove(CUSTOM_STAMPS, i); save_custom_stamps(); return true end
+  end
+  return false
+end
+
+-- Инструмент пометок (на время сессии)
+local TOOL = { stamp = "V", pos = "a", eraser = false }
+
+local function mark_at(line, w, pos)
+  for i, m in ipairs(line.marks or {}) do
+    if m.w == w and m.pos == pos then return i, m end
+  end
+end
+
+-- Клик по слову w текущим инструментом. true — что-то поменялось
+local function apply_tool(line, w, tool)
+  line.marks = line.marks or {}
+  if tool.eraser then
+    local changed = false
+    for i = #line.marks, 1, -1 do
+      if line.marks[i].w == w then table.remove(line.marks, i); changed = true end
+    end
+    return changed
+  end
+  local i, m = mark_at(line, w, tool.pos)
+  if m and m.s == tool.stamp then
+    table.remove(line.marks, i)               -- тот же значок → убрать
+  elseif m then
+    m.s = tool.stamp                          -- другой значок на том же месте → заменить
+  else
+    line.marks[#line.marks + 1] = { w = w, pos = tool.pos, s = tool.stamp }
+  end
+  return true
+end
+
+-- Хранение в проекте: "3:a:V;5:b:%E2%86%91"
+local function enc(str) return (str:gsub("[%%;:\t\r\n]", function(c) return string.format("%%%02X", c:byte()) end)) end
+local function dec(str) return (str:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)) end
+local function marks_to_str(marks)
+  local parts = {}
+  for _, m in ipairs(marks or {}) do parts[#parts + 1] = m.w .. ":" .. m.pos .. ":" .. enc(m.s) end
+  return table.concat(parts, ";")
+end
+local function marks_from_str(str)
+  local marks = {}
+  for entry in (str or ""):gmatch("[^;]+") do
+    local w, pos, st = entry:match("^(%d+):([ab]):(.+)$")
+    if w then marks[#marks + 1] = { w = tonumber(w), pos = pos, s = dec(st) } end
+  end
+  return marks
+end
+
 ---------------------------------------------------------------------------
 -- Состояние
 ---------------------------------------------------------------------------
@@ -606,7 +731,10 @@ local function load_state(proj)
   for i = 1, (tonumber(n) or 0) do
     local _, v = r.GetProjExtState(proj, SEC, "L" .. i)
     local ts, txt = v:match("^([^\t]*)\t(.*)$")
-    if ts then S.lines[#S.lines + 1] = { t = tonumber(ts), text = txt } end
+    if ts then
+      local _, mk = r.GetProjExtState(proj, SEC, "M" .. i)
+      S.lines[#S.lines + 1] = { t = tonumber(ts), text = txt, marks = marks_from_str(mk) }
+    end
   end
   local _, o = r.GetProjExtState(proj, SEC, "offset")
   local _, ld = r.GetProjExtState(proj, SEC, "lead")
@@ -628,6 +756,7 @@ local function save_state(proj)
   r.SetProjExtState(proj, SEC, "n", tostring(#S.lines))
   for i, l in ipairs(S.lines) do
     r.SetProjExtState(proj, SEC, "L" .. i, (l.t and string.format("%.3f", l.t) or "") .. "\t" .. l.text)
+    if l.marks and #l.marks > 0 then r.SetProjExtState(proj, SEC, "M" .. i, marks_to_str(l.marks)) end
   end
   r.SetProjExtState(proj, SEC, "offset", string.format("%.4f", S.offset))
   r.SetProjExtState(proj, SEC, "lead",   string.format("%.3f", S.lead))
@@ -636,6 +765,19 @@ local function save_state(proj)
 end
 
 local function set_lines(lines, name)
+  -- пометки переезжают на строки с тем же текстом (например, после «Применить»)
+  local pool = {}
+  for _, l in ipairs(S.lines or {}) do
+    if l.marks and #l.marks > 0 then
+      pool[l.text] = pool[l.text] or {}
+      table.insert(pool[l.text], l.marks)
+    end
+  end
+  for _, l in ipairs(lines) do
+    if not (l.marks and #l.marks > 0) and pool[l.text] and #pool[l.text] > 0 then
+      l.marks = table.remove(pool[l.text], 1)
+    end
+  end
   S.lines = lines
   -- только строка: set_lines(parse_lyrics(x)) передаёт вторым значением таблицу meta
   if type(name) == "string" then S.name = name end
@@ -996,6 +1138,8 @@ local function prompter_controls(width)
   ImGui.TextColored(ctx, COL.faint, T("opacity_note"))
   local rv3, v3 = ImGui.Checkbox(ctx, T("compact") .. "###cmp", VIEW.compact)
   if rv3 then VIEW.compact = v3; save_view() end
+  local rv4, v4 = ImGui.Checkbox(ctx, T("show_marks") .. "###shm", VIEW.show_marks)
+  if rv4 then VIEW.show_marks = v4; save_view() end
 end
 
 -- Быстрое меню «Вид» (кнопка в суфлёре и правый клик)
@@ -1100,14 +1244,17 @@ local function draw_prompter()
   local fb, fm = F_BIG[VIEW.fsize], F_MID[VIEW.fsize]
   local function line_text(j) local i = order[j]; if not i then return nil end
     local s = S.lines[i].text; return s ~= "" and s or "♪" end
+  local function line_marks(j) local i = order[j]
+    if not i or not VIEW.show_marks then return nil end
+    local m = S.lines[i].marks; return (m and #m > 0) and m or nil end
 
   -- Что рисуем: предыдущая, текущая (+ полоска), две следующие
   local items = {}
   local prev = k and line_text(k - 1)
-  items[#items + 1] = { font = fm, color = COL.faint, text = prev or " " }
+  items[#items + 1] = { font = fm, color = COL.faint, text = prev or " ", marks = k and line_marks(k - 1) }
   items[#items + 1] = { gap = 6 }
   if k then
-    items[#items + 1] = { font = fb, color = COL.cur, text = line_text(k) }
+    items[#items + 1] = { font = fb, color = COL.cur, text = line_text(k), marks = line_marks(k), current = true }
   else
     items[#items + 1] = { font = fb, color = COL.dim, text = T("intro", S.lines[order[1]].t - t) }
   end
@@ -1118,8 +1265,8 @@ local function draw_prompter()
   end
   items[#items + 1] = { progress = frac }
   local n1, n2 = line_text((k or 0) + 1), line_text((k or 0) + 2)
-  if n1 then items[#items + 1] = { font = fm, color = COL.next, text = n1 } end
-  if n2 then items[#items + 1] = { font = fm, color = COL.dim,  text = n2 } end
+  if n1 then items[#items + 1] = { font = fm, color = COL.next, text = n1, marks = line_marks((k or 0) + 1) } end
+  if n2 then items[#items + 1] = { font = fm, color = COL.dim,  text = n2, marks = line_marks((k or 0) + 2) } end
 
   -- Измеряем и центрируем блок по вертикали и каждую строку по горизонтали
   local avail_w, avail_h = ImGui.GetContentRegionAvail(ctx)
@@ -1128,11 +1275,27 @@ local function draw_prompter()
   local total = 0
   for _, it in ipairs(items) do
     if it.text then
+      it.words = words_of(it.text)
       ImGui.PushFont(ctx, it.font)
-      it.lines = wrap_lines(it.text, maxw)
+      it.lines = wrap_words(it.words, maxw)
+      if #it.lines == 0 then it.lines = { { from = 1, to = 0, text = " " } } end
       it.lh = ImGui.GetTextLineHeightWithSpacing(ctx)
       ImGui.PopFont(ctx)
-      total = total + #it.lines * it.lh
+      -- пометки: какие строки переноса нуждаются в ряду сверху/снизу
+      it.mfont = (it.font == fb) and fm or F_UI
+      ImGui.PushFont(ctx, it.mfont)
+      it.mh = ImGui.GetTextLineHeight(ctx)
+      ImGui.PopFont(ctx)
+      for _, wl in ipairs(it.lines) do
+        wl.above, wl.below = {}, {}
+        for _, m in ipairs(it.marks or {}) do
+          if m.w >= wl.from and m.w <= wl.to then
+            if m.pos == "a" then wl.above[#wl.above + 1] = m else wl.below[#wl.below + 1] = m end
+          end
+        end
+        wl.h = it.lh + (#wl.above > 0 and it.mh or 0) + (#wl.below > 0 and it.mh or 0)
+        total = total + wl.h
+      end
     elseif it.gap then
       total = total + it.gap
     else
@@ -1143,14 +1306,40 @@ local function draw_prompter()
 
   for _, it in ipairs(items) do
     if it.text then
-      ImGui.PushFont(ctx, it.font)
-      for _, ln in ipairs(it.lines) do
-        local w = ImGui.CalcTextSize(ctx, ln)
-        ImGui.SetCursorPos(ctx, x0 + math.max(0, (avail_w - w) / 2), y)
-        ImGui.TextColored(ctx, it.color, ln)
-        y = y + it.lh
+      for _, wl in ipairs(it.lines) do
+        ImGui.PushFont(ctx, it.font)
+        local w = ImGui.CalcTextSize(ctx, wl.text)
+        local xs = x0 + math.max(0, (avail_w - w) / 2)
+        -- центры слов этой строки (в шрифте строки)
+        local centers = {}
+        if #wl.above + #wl.below > 0 then
+          local space = ImGui.CalcTextSize(ctx, " ")
+          local x = xs
+          for wi = wl.from, wl.to do
+            local ww = ImGui.CalcTextSize(ctx, it.words[wi])
+            centers[wi] = x + ww / 2
+            x = x + ww + space
+          end
+        end
+        local ty = y + (#wl.above > 0 and it.mh or 0)
+        ImGui.SetCursorPos(ctx, xs, ty)
+        ImGui.TextColored(ctx, it.color, wl.text)
+        ImGui.PopFont(ctx)
+
+        if #wl.above + #wl.below > 0 then
+          ImGui.PushFont(ctx, it.mfont)
+          local mcol = it.current and COL.accent or it.color
+          local function draw_mark(m, my)
+            local mw = ImGui.CalcTextSize(ctx, m.s)
+            ImGui.SetCursorPos(ctx, math.max(x0, centers[m.w] - mw / 2), my)
+            ImGui.TextColored(ctx, mcol, m.s)
+          end
+          for _, m in ipairs(wl.above) do draw_mark(m, y) end
+          for _, m in ipairs(wl.below) do draw_mark(m, ty + it.lh - 4) end
+          ImGui.PopFont(ctx)
+        end
+        y = y + wl.h
       end
-      ImGui.PopFont(ctx)
     elseif it.gap then
       y = y + it.gap
     else
@@ -1175,6 +1364,79 @@ local function do_tap(song_t)
   l.t = math.max(0, song_t)
   tap_idx = tap_idx + 1
   mark_dirty(); buf_stale = true
+end
+
+-- Панель режима пометок: значки, ластик, над/под, свой значок
+local draw_marks_toolbar, draw_marked_words
+local MARKS_EDIT = false
+local new_stamp = ""
+function draw_marks_toolbar()
+  ImGui.TextColored(ctx, COL.faint, T("marks_hint"))
+  local all = {}
+  for _, st in ipairs(DEFAULT_STAMPS) do all[#all + 1] = { s = st } end
+  for _, st in ipairs(CUSTOM_STAMPS) do all[#all + 1] = { s = st, custom = true } end
+  for i, st in ipairs(all) do
+    local label = st.s .. "###stamp" .. i
+    local w = math.max(button_w(st.s), 30)
+    if i > 1 then flow(w) end
+    local selected = not TOOL.eraser and TOOL.stamp == st.s
+    local clicked
+    if selected then clicked = accent_button(label, w) else clicked = ImGui.Button(ctx, label, w) end
+    if clicked then TOOL.stamp, TOOL.eraser = st.s, false end
+    if st.custom then
+      if ImGui.IsItemHovered(ctx) then ImGui.SetTooltip(ctx, T("stamp_tip")) end
+      if ImGui.IsItemClicked(ctx, ImGui.MouseButton_Right) then
+        remove_custom_stamp(st.s)
+        if TOOL.stamp == st.s then TOOL.stamp = DEFAULT_STAMPS[1] end
+      end
+    end
+  end
+  local er = T("eraser") .. "###eraser"
+  flow(button_w(er))
+  if TOOL.eraser then
+    if accent_button(er) then TOOL.eraser = false end
+  elseif ImGui.Button(ctx, er) then
+    TOOL.eraser = true
+  end
+
+  if ImGui.RadioButton(ctx, T("pos_above") .. "###pa", TOOL.pos == "a") then TOOL.pos = "a" end
+  flow(button_w(T("pos_below")) + 24)
+  if ImGui.RadioButton(ctx, T("pos_below") .. "###pb", TOOL.pos == "b") then TOOL.pos = "b" end
+
+  ImGui.SetNextItemWidth(ctx, 140)
+  local rvs, vs = ImGui.InputTextWithHint(ctx, "###newstamp", T("own_stamp"), new_stamp)
+  if rvs then new_stamp = vs end
+  flow(button_w(T("add_stamp")))
+  if ImGui.Button(ctx, T("add_stamp") .. "###addstamp") then
+    local st = add_custom_stamp(new_stamp)
+    if st then TOOL.stamp, TOOL.eraser, new_stamp = st, false, "" end
+  end
+end
+
+-- Строка в режиме пометок: слова — кнопки, значки рисуются над/под ними
+function draw_marked_words(l, highlighted)
+  local words = words_of(l.text)
+  local fh = ImGui.GetTextLineHeight(ctx)
+  local h = fh * 3
+  local dl = ImGui.GetWindowDrawList(ctx)
+  local wcol = highlighted and COL.cur or COL.text
+  for j, word in ipairs(words) do
+    local ww = ImGui.CalcTextSize(ctx, word)
+    local bw = math.max(ww, 10) + 6
+    if j > 1 then flow(bw) end
+    if ImGui.Selectable(ctx, "###w" .. j, false, 0, bw, h) then
+      if apply_tool(l, j, TOOL) then mark_dirty() end
+    end
+    local x1, y1 = ImGui.GetItemRectMin(ctx)
+    ImGui.DrawList_AddText(dl, x1 + (bw - ww) / 2, y1 + fh, wcol, word)
+    for _, m in ipairs(l.marks or {}) do
+      if m.w == j then
+        local mw = ImGui.CalcTextSize(ctx, m.s)
+        local my = m.pos == "a" and y1 or (y1 + fh * 2)
+        ImGui.DrawList_AddText(dl, x1 + (bw - mw) / 2, my, COL.accent, m.s)
+      end
+    end
+  end
 end
 
 local function draw_sync()
@@ -1236,6 +1498,10 @@ local function draw_sync()
 
   section(T("sec_lines"))
 
+  local rvm, vm = ImGui.Checkbox(ctx, T("marks_edit") .. "###medit", MARKS_EDIT)
+  if rvm then MARKS_EDIT = vm end
+  if MARKS_EDIT then draw_marks_toolbar() end
+
   local order = timed_order()
   local k = find_current(order, song_t + S.lead)
   local cur_i = k and order[k] or nil
@@ -1264,7 +1530,11 @@ local function draw_sync()
       local hl = (i == cur_i)
       if hl then ImGui.PushStyleColor(ctx, ImGui.Col_Text, COL.cur) end
       if l.text == "" and not hl then ImGui.PushStyleColor(ctx, ImGui.Col_Text, COL.dim) end
-      if ImGui.Selectable(ctx, (l.text ~= "" and l.text or T("interlude")) .. "###sel", i == tap_idx) then tap_idx = i end
+      if MARKS_EDIT and l.text ~= "" then
+        draw_marked_words(l, hl)
+      elseif ImGui.Selectable(ctx, (l.text ~= "" and l.text or T("interlude")) .. "###sel", i == tap_idx) then
+        tap_idx = i
+      end
       if l.text == "" and not hl then ImGui.PopStyleColor(ctx) end
       if hl then ImGui.PopStyleColor(ctx) end
 
@@ -1537,7 +1807,10 @@ if VP_TEST then
     start_search = start_search, search_track = search_track, poll_search = poll_search,
     build_song_list = build_song_list, imgui_has = imgui_has, loop = loop,
     S = function() return S end, SR = SR, VIEW = VIEW, jobs = jobs, COL = COL,
-    THEMES = THEMES, ACCENTS = ACCENTS, update_colors = update_colors, mix = mix, fit_text = fit_text,
+    THEMES = THEMES, ACCENTS = ACCENTS, TOOL = TOOL, apply_tool = apply_tool,
+    marks_to_str = marks_to_str, marks_from_str = marks_from_str, wrap_words = wrap_words,
+    add_custom_stamp = add_custom_stamp, CUSTOM_STAMPS = CUSTOM_STAMPS, DEFAULT_STAMPS = DEFAULT_STAMPS,
+    set_marks_edit = function(v) MARKS_EDIT = v end, update_colors = update_colors, mix = mix, fit_text = fit_text,
     tap_idx = function() return tap_idx end, dirty = function() return dirty end,
     queries = function() return q_artist, q_title end,
   }
